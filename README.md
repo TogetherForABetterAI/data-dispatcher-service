@@ -11,18 +11,18 @@ This service provides gRPC endpoints for streaming and retrieving dataset batche
 
 1. **For easier proto generation, use the provided script:**
 
-```bash
-# Make the script executable (first time only)
-chmod +x src/scripts/regenerate_proto.sh
+    ```bash
+    # Make the script executable (first time only)
+    chmod +x src/scripts/generate_proto.sh
 
-# Run the script to regenerate proto files
-sudo src/scripts/generate_proto.sh
-```
+    # Run the script to regenerate proto files
+    sudo src/scripts/generate_proto.sh
+    ```
 
-This script will:
-- Delete the old generated files in `src/pb/`
-- Create a fresh `src/pb/` directory
-- Run the proto-gen container to regenerate the code
+    This script will:
+    - Delete the old generated files in `src/pb/`
+    - Create a fresh `src/pb/` directory
+    - Run the proto-gen container to regenerate the code
 
 2. **Build and start the server:**
    ```bash
