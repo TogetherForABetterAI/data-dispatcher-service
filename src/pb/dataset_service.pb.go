@@ -154,8 +154,8 @@ func (x *GetBatchRequest) GetBatchIndex() int32 {
 // Response containing a batch of data
 type DataBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`                                     // serialized tensor data
-	BatchId       int32                  `protobuf:"varint,2,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`               // batch ID (renamed from batch_index)
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // serialized tensor data
+	BatchIndex    int32                  `protobuf:"varint,2,opt,name=batch_index,json=batchIndex,proto3" json:"batch_index,omitempty"`
 	IsLastBatch   bool                   `protobuf:"varint,3,opt,name=is_last_batch,json=isLastBatch,proto3" json:"is_last_batch,omitempty"` // indicates if this is the last batch
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -198,9 +198,9 @@ func (x *DataBatch) GetData() []byte {
 	return nil
 }
 
-func (x *DataBatch) GetBatchId() int32 {
+func (x *DataBatch) GetBatchIndex() int32 {
 	if x != nil {
-		return x.BatchId
+		return x.BatchIndex
 	}
 	return 0
 }
@@ -441,10 +441,11 @@ const file_dataset_service_proto_rawDesc = "" +
 	"\n" +
 	"batch_size\x18\x02 \x01(\x05R\tbatchSize\x12\x1f\n" +
 	"\vbatch_index\x18\x03 \x01(\x05R\n" +
-	"batchIndex\"^\n" +
+	"batchIndex\"d\n" +
 	"\tDataBatch\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\x12\x19\n" +
-	"\bbatch_id\x18\x02 \x01(\x05R\abatchId\x12\"\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1f\n" +
+	"\vbatch_index\x18\x02 \x01(\x05R\n" +
+	"batchIndex\x12\"\n" +
 	"\ris_last_batch\x18\x03 \x01(\bR\visLastBatch\":\n" +
 	"\x15GetDatasetInfoRequest\x12!\n" +
 	"\fdataset_name\x18\x01 \x01(\tR\vdatasetName\"\xb8\x01\n" +
