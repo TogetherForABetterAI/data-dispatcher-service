@@ -1,0 +1,16 @@
+FROM golang:1.23.10 as server-builder
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+WORKDIR /app/src
+
+EXPOSE 8080
+
+RUN go build -o server main.go
+
+CMD ["./server"]
