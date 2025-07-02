@@ -6,30 +6,33 @@ This service provides gRPC endpoints for streaming and retrieving dataset batche
 - [Docker](https://docs.docker.com/get-docker/)
 - [Docker Compose](https://docs.docker.com/compose/install/)
 
-## Generating Go code from Protobuf (using Docker)
-If you modify the proto files, you can regenerate the Go code using Docker Compose:
+## Generating Go code from Protobuf 
+For easier proto regeneration, you can use the provided script:
 
 ```bash
-sudo docker compose up --build proto-gen
+# Make the script executable (first time only)
+chmod +x src/scripts/regenerate_proto.sh
+
+# Run the script to regenerate proto files
+sudo src/scripts/generate_proto.sh
 ```
 
-This will generate the Go protobuf and gRPC files into `src/pb/`.
+This script will:
+- Delete the old generated files in `src/pb/`
+- Create a fresh `src/pb/` directory
+- Run the proto-gen container to regenerate the code
 
 ## Running the Server with Docker Compose
 
-1. **Generate the protobuf files (if not already done):**
-   ```bash
-   sudo docker compose up --build proto-gen
-   ```
-   (You can stop the proto-gen container after generation with `sudo docker compose down`)
 
-2. **Build and start the server:**
+
+1. **Build and start the server:**
    ```bash
-   sudo docker compose up --build go-server
+   sudo docker compose up --build data-dispatcher-service
    ```
    This will build the Docker image (if needed) and start the server, exposing it on port 8080.
 
-3. **Stop the server:**
+2. **Stop the server:**
    ```bash
    sudo docker compose down
    ```
