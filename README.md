@@ -45,7 +45,12 @@
     This script will:
     - Delete the old generated files in `src/pb/`
     - Create a fresh `src/pb/` directory
-    - Run the proto-gen container to regenerate the code
+    - Run the proto-gen container to regenerate the code 
+
+    This script:
+    - Should be run again if the .proto file is changed or modified. Otherwise, running it once is enough.
+
+
 
 2. **Build and start the server:**
    ```bash
@@ -58,5 +63,4 @@
    sudo docker compose down
    ```
 
-## Notes
-- If you add or change dependencies, update your `go.mod` and `go.sum` locally, then rebuild the Docker images.
+
