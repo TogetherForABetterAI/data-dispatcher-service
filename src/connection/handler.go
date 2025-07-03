@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net"
-	"os"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -20,7 +19,9 @@ func init() {
 func Handle(conn net.Conn, clientID string) {
 	defer conn.Close()
 	batch_index := 0
-	grpcClient, err := grpc.NewClient(os.Getenv("GRPC_SERVER_ADDRESS"))
+	address := "localhost:50051"
+	log.Printf("address vale: %v", address)
+	grpcClient, err := grpc.NewClient(address)
 
 	if err != nil {
 		//deberia intentar conectarme nuevamente
@@ -29,12 +30,12 @@ func Handle(conn net.Conn, clientID string) {
 		return
 	}
 
-	for batchID := 0; ; batchID++ {
+	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		req := &pb.GetBatchRequest{
 			DatasetName: "mnist",
-			BatchSize:   2,
-			BatchIndex: int32(batch_index),
+			BatchSize: 30,
+			BatchIndex:  int32(batch_index),
 		}
 		batch, err := grpcClient.GetBatch(ctx, req)
 		cancel()
@@ -44,10 +45,10 @@ func Handle(conn net.Conn, clientID string) {
 		}
 
 		batchMsg := &protocol.BatchMessage{
-			BatchIndex: batch.GetBatchIndex(),
-			BatchData: []interface{}{batch.GetData()},
-			ClientID:  clientID,
-			EOF:       batch.GetIsLastBatch(),
+			BatchIndex: int32(batch_index),
+			BatchData:  []interface{}{batch.GetData()},
+			ClientID:   clientID,
+			EOF:        batch.GetIsLastBatch(),
 		}
 
 		if err := protocol.EncodeBatchMessage(conn, batchMsg); err != nil {
