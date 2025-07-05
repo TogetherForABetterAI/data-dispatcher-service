@@ -1,9 +1,10 @@
 // middleware.go
-package rabbitmq
+package middleware
 
 import (
+	"context"
 	"log"
-	"os"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -14,7 +15,7 @@ type Middleware struct {
 }
 
 func NewMiddleware() (*Middleware, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error
 	)
 }
 
-func (m *Middleware) BasicSend(routingKey, message, exchangeName string) error {
+func (m *Middleware) BasicSend(routingKey string, message []byte, exchangeName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()	
 	err := m.channel.PublishWithContext(
@@ -83,8 +84,7 @@ func (m *Middleware) BasicSend(routingKey, message, exchangeName string) error {
 		false, // immediate
 		amqp.Publishing{
 			DeliveryMode: amqp.Persistent,
-			ContentType:  "text/plain",
-			Body:         []byte(message),
+			Body:         message,
 		},
 	)
 	if err != nil {

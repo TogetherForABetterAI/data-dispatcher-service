@@ -11,6 +11,7 @@ import (
 	"github.com/mlops-eval/data-dispatcher-service/src/pb"
 	"github.com/mlops-eval/data-dispatcher-service/src/protocol"
 	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
+
 )
 
 func init() {
@@ -20,7 +21,7 @@ func init() {
 func Handle(conn net.Conn, clientID string, middleware *middleware.Middleware) {
 	defer conn.Close()
 	batch_index := 0
-	address := "localhost:50051"
+	address := "dataset-grpc-service:50051"
 	log.Printf("address vale: %v", address)
 	grpcClient, err := grpc.NewClient(address)
 
@@ -52,14 +53,14 @@ func Handle(conn net.Conn, clientID string, middleware *middleware.Middleware) {
 			EOF:        batch.GetIsLastBatch(),
 		}
 
-		batch, err := protocol.EncodeBatchMessage(conn, batchMsg); 
+		batch_bytes, err := protocol.EncodeBatchMessage(conn, batchMsg); 
 		if err != nil {
 			log.Printf("error sending batch to client %s: %v", clientID, err)
 			return
 		}
-		middleware.Publish(
+		middleware.BasicSend(
 			"data",
-			batch,
+			batch_bytes,
 			"data_exchange",
 		)
 
@@ -69,5 +70,7 @@ func Handle(conn net.Conn, clientID string, middleware *middleware.Middleware) {
 		}
 
 		batch_index++
+
+		print("Batch sent to client with index: ", batch_index, "\n")
 	}
 }
