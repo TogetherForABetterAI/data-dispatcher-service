@@ -18,6 +18,7 @@ type ClientDataProcessor struct {
 	datasetServiceAddr string
 	logger             *logrus.Logger
 	maxRetries         int
+	rabbitConfig       rabbitmq.Config
 }
 
 // NewClientDataProcessor creates a new client data processor
@@ -39,29 +40,53 @@ func NewClientDataProcessor() *ClientDataProcessor {
 		}
 	}
 
+	// Get RabbitMQ connection details from environment
+	rabbitHost := os.Getenv("RABBITMQ_HOST")
+	if rabbitHost == "" {
+		rabbitHost = "localhost"
+	}
+
+	rabbitPort := int32(5672) // default RabbitMQ port
+	if portStr := os.Getenv("RABBITMQ_PORT"); portStr != "" {
+		if parsed, err := strconv.ParseInt(portStr, 10, 32); err == nil {
+			rabbitPort = int32(parsed)
+		}
+	}
+
+	rabbitUser := os.Getenv("RABBITMQ_USER")
+	if rabbitUser == "" {
+		rabbitUser = "guest"
+	}
+
+	rabbitPass := os.Getenv("RABBITMQ_PASS")
+	if rabbitPass == "" {
+		rabbitPass = "guest"
+	}
+
+	rabbitConfig := rabbitmq.Config{
+		Host:     rabbitHost,
+		Port:     rabbitPort,
+		Username: rabbitUser,
+		Password: rabbitPass,
+	}
+
 	return &ClientDataProcessor{
 		datasetServiceAddr: datasetAddr,
 		logger:             logger,
 		maxRetries:         maxRetries,
+		rabbitConfig:       rabbitConfig,
 	}
 }
 
 // ProcessClient implements the ClientProcessor interface
 func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *pb.NewClientRequest) error {
 	p.logger.WithFields(logrus.Fields{
-		"client_id":  req.ClientId,
-		"queue_name": req.QueueName,
+		"client_id":   req.ClientId,
+		"routing_key": req.RoutingKey,
 	}).Info("Starting client data processing")
 
 	// Create RabbitMQ publisher
-	rabbitConfig := rabbitmq.Config{
-		Host:     req.AmqpHost,
-		Port:     req.AmqpPort,
-		Username: req.AmqpUser,
-		Password: req.AmqpPass,
-	}
-
-	publisher, err := rabbitmq.NewPublisher(rabbitConfig)
+	publisher, err := rabbitmq.NewPublisher(p.rabbitConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create RabbitMQ publisher: %w", err)
 	}
@@ -99,7 +124,7 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *pb.NewClie
 
 		// Fetch batch from dataset service with timeout
 		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		
+
 		batchReq := &pb.GetBatchRequest{
 			DatasetName: datasetName,
 			BatchSize:   batchSize,
@@ -127,30 +152,30 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *pb.NewClie
 			Timestamp:   time.Now(),
 		}
 
-		// Publish to RabbitMQ with retry
-		if err := publisher.PublishBatchWithRetry(ctx, req.QueueName, rabbitBatch, p.maxRetries); err != nil {
+		// Publish to both exchanges using routing key with retry
+		if err := publisher.PublishBatchWithRetry(ctx, req.RoutingKey, rabbitBatch, p.maxRetries); err != nil {
 			p.logger.WithFields(logrus.Fields{
 				"client_id":   req.ClientId,
 				"batch_index": batchIndex,
-				"queue_name":  req.QueueName,
+				"routing_key": req.RoutingKey,
 				"error":       err.Error(),
-			}).Error("Failed to publish batch to RabbitMQ")
-			return fmt.Errorf("failed to publish batch %d to queue %s: %w", batchIndex, req.QueueName, err)
+			}).Error("Failed to publish batch to exchanges")
+			return fmt.Errorf("failed to publish batch %d with routing key %s: %w", batchIndex, req.RoutingKey, err)
 		}
 
 		p.logger.WithFields(logrus.Fields{
 			"client_id":     req.ClientId,
 			"batch_index":   batchIndex,
-			"queue_name":    req.QueueName,
+			"routing_key":   req.RoutingKey,
 			"is_last_batch": batch.GetIsLastBatch(),
 			"data_size":     len(batch.GetData()),
-		}).Info("Successfully published batch")
+		}).Info("Successfully published batch to both exchanges")
 
 		// Check if this was the last batch
 		if batch.GetIsLastBatch() {
 			p.logger.WithFields(logrus.Fields{
-				"client_id":      req.ClientId,
-				"total_batches":  batchIndex + 1,
+				"client_id":     req.ClientId,
+				"total_batches": batchIndex + 1,
 			}).Info("Completed data processing for client")
 			break
 		}
@@ -166,4 +191,4 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *pb.NewClie
 	}
 
 	return nil
-} 
+}
