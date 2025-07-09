@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
-	"github.com/mlops-eval/data-dispatcher-service/src/pb"
+	datasetpb "github.com/mlops-eval/data-dispatcher-service/src/pb/dataset-service"
+	clientpb "github.com/mlops-eval/data-dispatcher-service/src/pb/new-client-service"
 	"github.com/mlops-eval/data-dispatcher-service/src/rabbitmq"
 	"github.com/sirupsen/logrus"
 )
@@ -79,7 +80,7 @@ func NewClientDataProcessor() *ClientDataProcessor {
 }
 
 // ProcessClient implements the ClientProcessor interface
-func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *pb.NewClientRequest) error {
+func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.NewClientRequest) error {
 	p.logger.WithFields(logrus.Fields{
 		"client_id":   req.ClientId,
 		"routing_key": req.RoutingKey,
@@ -125,7 +126,7 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *pb.NewClie
 		// Fetch batch from dataset service with timeout
 		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 
-		batchReq := &pb.GetBatchRequest{
+		batchReq := &datasetpb.GetBatchRequest{
 			DatasetName: datasetName,
 			BatchSize:   batchSize,
 			BatchIndex:  batchIndex,

@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/mlops-eval/data-dispatcher-service/src/pb"
+	clientpb "github.com/mlops-eval/data-dispatcher-service/src/pb/new-client-service"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -15,7 +15,7 @@ import (
 
 // DataDispatcherServer implements the ClientNotificationService gRPC service
 type DataDispatcherServer struct {
-	pb.UnimplementedClientNotificationServiceServer
+	clientpb.UnimplementedClientNotificationServiceServer
 	logger     *logrus.Logger
 	clientWg   sync.WaitGroup  // Track active client goroutines
 	shutdown   chan struct{}   // Signal for graceful shutdown
@@ -25,7 +25,7 @@ type DataDispatcherServer struct {
 
 // ClientProcessor defines the interface for processing client data
 type ClientProcessor interface {
-	ProcessClient(ctx context.Context, req *pb.NewClientRequest) error
+	ProcessClient(ctx context.Context, req *clientpb.NewClientRequest) error
 }
 
 // NewDataDispatcherServer creates a new instance of the data dispatcher gRPC server
@@ -41,7 +41,7 @@ func NewDataDispatcherServer(processor ClientProcessor) *DataDispatcherServer {
 }
 
 // NotifyNewClient handles new client notifications and spawns a goroutine to process them
-func (s *DataDispatcherServer) NotifyNewClient(ctx context.Context, req *pb.NewClientRequest) (*pb.NewClientResponse, error) {
+func (s *DataDispatcherServer) NotifyNewClient(ctx context.Context, req *clientpb.NewClientRequest) (*clientpb.NewClientResponse, error) {
 	s.logger.WithFields(logrus.Fields{
 		"client_id":   req.ClientId,
 		"routing_key": req.RoutingKey,
@@ -49,14 +49,14 @@ func (s *DataDispatcherServer) NotifyNewClient(ctx context.Context, req *pb.NewC
 
 	// Validate request
 	if req.ClientId == "" {
-		return &pb.NewClientResponse{
+		return &clientpb.NewClientResponse{
 			Status:  "ERROR",
 			Message: "client_id is required",
 		}, nil
 	}
 
 	if req.RoutingKey == "" {
-		return &pb.NewClientResponse{
+		return &clientpb.NewClientResponse{
 			Status:  "ERROR",
 			Message: "routing_key is required",
 		}, nil
@@ -92,15 +92,15 @@ func (s *DataDispatcherServer) NotifyNewClient(ctx context.Context, req *pb.NewC
 		}
 	}()
 
-	return &pb.NewClientResponse{
+	return &clientpb.NewClientResponse{
 		Status:  "OK",
 		Message: "Client processing started",
 	}, nil
 }
 
 // HealthCheck implements health checking
-func (s *DataDispatcherServer) HealthCheck(ctx context.Context, req *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
-	return &pb.HealthCheckResponse{
+func (s *DataDispatcherServer) HealthCheck(ctx context.Context, req *clientpb.HealthCheckRequest) (*clientpb.HealthCheckResponse, error) {
+	return &clientpb.HealthCheckResponse{
 		Status:  "SERVING",
 		Message: "Data dispatcher service is healthy",
 	}, nil
@@ -116,7 +116,7 @@ func (s *DataDispatcherServer) Start(port int) error {
 	s.grpcServer = grpc.NewServer()
 
 	// Register the client notification service
-	pb.RegisterClientNotificationServiceServer(s.grpcServer, s)
+	clientpb.RegisterClientNotificationServiceServer(s.grpcServer, s)
 
 	// Register health service
 	healthServer := health.NewServer()
