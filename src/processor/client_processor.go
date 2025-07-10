@@ -30,7 +30,7 @@ func NewClientDataProcessor() *ClientDataProcessor {
 	// Get dataset service address from environment or use default
 	datasetAddr := os.Getenv("DATASET_SERVICE_ADDR")
 	if datasetAddr == "" {
-		datasetAddr = "localhost:50051" // default from existing code
+		datasetAddr = "dataset-grpc-service:50051" // default from existing code
 	}
 
 	// Get max retries from environment or use default
