@@ -106,17 +106,20 @@ response, err := client.NotifyNewClient(ctx, &pb.NewClientRequest{
 
 ## RabbitMQ Message Format
 
-Published messages contain:
+Published messages contain protobuf-serialized `DataBatch` messages with the following structure:
 
-```json
-{
-  "client_id": "user123",
-  "batch_index": 42,
-  "data": "<base64-encoded-batch-data>",
-  "is_last_batch": false,
-  "timestamp": "2024-01-15T10:30:00Z"
+```protobuf
+message DataBatch {
+  bytes data = 1;           // serialized tensor data
+  int32 batch_index = 2;    // batch index
+  bool is_last_batch = 3;   // indicates if this is the last batch
 }
 ```
+
+**Message Properties:**
+- **Content-Type**: `application/x-protobuf`
+- **Headers**: Include `client_id`, `batch_index`, and `is_last_batch` for routing and metadata
+- **Body**: Protobuf-serialized `DataBatch` message
 
 ## Health Monitoring
 
