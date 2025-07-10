@@ -4,6 +4,11 @@ services:
       context: .
       dockerfile: docker/Dockerfile.server
     container_name: data-dispatcher-service
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
     volumes:
       - ./src/pb:/app/src/pb
     networks:
