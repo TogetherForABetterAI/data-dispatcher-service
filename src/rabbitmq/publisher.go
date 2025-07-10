@@ -2,12 +2,13 @@ package rabbitmq
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
+	datasetpb "github.com/mlops-eval/data-dispatcher-service/src/pb/dataset-service"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 )
 
 // Publisher handles RabbitMQ publishing operations
@@ -76,10 +77,17 @@ func NewPublisher(config Config) (*Publisher, error) {
 
 // PublishBatch publishes a data batch to both exchanges using the provided routing key
 func (p *Publisher) PublishBatch(ctx context.Context, routingKey string, batch *BatchData) error {
-	// Marshal the batch data to JSON
-	body, err := json.Marshal(batch)
+	// Convert BatchData to protobuf DataBatch
+	protoBatch := &datasetpb.DataBatch{
+		Data:        batch.Data,
+		BatchIndex:  batch.BatchIndex,
+		IsLastBatch: batch.IsLastBatch,
+	}
+
+	// Marshal the batch data to protobuf
+	body, err := proto.Marshal(protoBatch)
 	if err != nil {
-		return fmt.Errorf("failed to marshal batch data: %w", err)
+		return fmt.Errorf("failed to marshal batch data to protobuf: %w", err)
 	}
 
 	// Exchange names
@@ -94,7 +102,7 @@ func (p *Publisher) PublishBatch(ctx context.Context, routingKey string, batch *
 		false,                   // mandatory
 		false,                   // immediate
 		amqp.Publishing{
-			ContentType:  "application/json",
+			ContentType:  "application/x-protobuf",
 			Body:         body,
 			Timestamp:    batch.Timestamp,
 			DeliveryMode: amqp.Persistent, // Make message persistent
@@ -118,7 +126,7 @@ func (p *Publisher) PublishBatch(ctx context.Context, routingKey string, batch *
 		false,           // mandatory
 		false,           // immediate
 		amqp.Publishing{
-			ContentType:  "application/json",
+			ContentType:  "application/x-protobuf",
 			Body:         body,
 			Timestamp:    batch.Timestamp,
 			DeliveryMode: amqp.Persistent, // Make message persistent
