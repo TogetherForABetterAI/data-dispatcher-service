@@ -8,7 +8,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/mlops-eval/data-dispatcher-service/src/processor"
-	"github.com/mlops-eval/data-dispatcher-service/src/server"
+	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
 	"github.com/sirupsen/logrus"
 )
 
@@ -47,7 +47,7 @@ func main() {
 	clientProcessor := processor.NewClientDataProcessor()
 
 	// Create gRPC server
-	grpcServer := server.NewDataDispatcherServer(clientProcessor)
+	grpcServer := grpc.NewDataDispatcherServer(clientProcessor)
 
 	// Start server in a goroutine
 	go func() {
