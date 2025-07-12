@@ -46,7 +46,13 @@ func Handle(conn net.Conn, clientID string, middleware *middleware.Middleware) {
 			return
 		}
 
-		batch_bytes, err := protocol.EncodeBatchMessage(batch); 
+		client_batch_bytes, err := protocol.EncodeClientBatchMessage(batch)
+		if err != nil {
+			log.Printf("error encoding batch for client %s: %v", clientID, err)
+			return
+		}
+
+		calibration_batch_bytes, err := protocol.EncodeBatchMessage(batch); 
 		if err != nil {
 			log.Printf("error sending batch to client %s: %v", clientID, err)
 			return
@@ -54,12 +60,12 @@ func Handle(conn net.Conn, clientID string, middleware *middleware.Middleware) {
 	
 		middleware.BasicSend(
 			"data",
-			batch_bytes,
+			client_batch_bytes,
 			"data_exchange",
 		)
 		middleware.BasicSend(
 			"data",
-			batch_bytes,
+			calibration_batch_bytes,
 			"calibration_exchange",
 		)
 
@@ -70,6 +76,6 @@ func Handle(conn net.Conn, clientID string, middleware *middleware.Middleware) {
 
 		batch_index++
 
-		print("Batch sent to client with index: ", batch_index, "\n")
+		log.Printf("Batch sent to client with index: %d", batch_index)
 	}
 }

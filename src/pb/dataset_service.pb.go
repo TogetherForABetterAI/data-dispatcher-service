@@ -154,9 +154,10 @@ func (x *GetBatchRequest) GetBatchIndex() int32 {
 // Response containing a batch of data
 type DataBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"` // serialized tensor data
-	BatchIndex    int32                  `protobuf:"varint,2,opt,name=batch_index,json=batchIndex,proto3" json:"batch_index,omitempty"`
-	IsLastBatch   bool                   `protobuf:"varint,3,opt,name=is_last_batch,json=isLastBatch,proto3" json:"is_last_batch,omitempty"` // indicates if this is the last batch
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	Labels        []int32                `protobuf:"varint,2,rep,packed,name=labels,proto3" json:"labels,omitempty"`
+	BatchIndex    int32                  `protobuf:"varint,3,opt,name=batch_index,json=batchIndex,proto3" json:"batch_index,omitempty"`
+	IsLastBatch   bool                   `protobuf:"varint,4,opt,name=is_last_batch,json=isLastBatch,proto3" json:"is_last_batch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -198,6 +199,13 @@ func (x *DataBatch) GetData() []byte {
 	return nil
 }
 
+func (x *DataBatch) GetLabels() []int32 {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
 func (x *DataBatch) GetBatchIndex() int32 {
 	if x != nil {
 		return x.BatchIndex
@@ -206,6 +214,66 @@ func (x *DataBatch) GetBatchIndex() int32 {
 }
 
 func (x *DataBatch) GetIsLastBatch() bool {
+	if x != nil {
+		return x.IsLastBatch
+	}
+	return false
+}
+
+type ClientDataBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Data          []byte                 `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	BatchIndex    int32                  `protobuf:"varint,3,opt,name=batch_index,json=batchIndex,proto3" json:"batch_index,omitempty"`
+	IsLastBatch   bool                   `protobuf:"varint,4,opt,name=is_last_batch,json=isLastBatch,proto3" json:"is_last_batch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClientDataBatch) Reset() {
+	*x = ClientDataBatch{}
+	mi := &file_dataset_service_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClientDataBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientDataBatch) ProtoMessage() {}
+
+func (x *ClientDataBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_dataset_service_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientDataBatch.ProtoReflect.Descriptor instead.
+func (*ClientDataBatch) Descriptor() ([]byte, []int) {
+	return file_dataset_service_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ClientDataBatch) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ClientDataBatch) GetBatchIndex() int32 {
+	if x != nil {
+		return x.BatchIndex
+	}
+	return 0
+}
+
+func (x *ClientDataBatch) GetIsLastBatch() bool {
 	if x != nil {
 		return x.IsLastBatch
 	}
@@ -222,7 +290,7 @@ type GetDatasetInfoRequest struct {
 
 func (x *GetDatasetInfoRequest) Reset() {
 	*x = GetDatasetInfoRequest{}
-	mi := &file_dataset_service_proto_msgTypes[3]
+	mi := &file_dataset_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -234,7 +302,7 @@ func (x *GetDatasetInfoRequest) String() string {
 func (*GetDatasetInfoRequest) ProtoMessage() {}
 
 func (x *GetDatasetInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dataset_service_proto_msgTypes[3]
+	mi := &file_dataset_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -247,7 +315,7 @@ func (x *GetDatasetInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDatasetInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetDatasetInfoRequest) Descriptor() ([]byte, []int) {
-	return file_dataset_service_proto_rawDescGZIP(), []int{3}
+	return file_dataset_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetDatasetInfoRequest) GetDatasetName() string {
@@ -271,7 +339,7 @@ type DatasetInfo struct {
 
 func (x *DatasetInfo) Reset() {
 	*x = DatasetInfo{}
-	mi := &file_dataset_service_proto_msgTypes[4]
+	mi := &file_dataset_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -283,7 +351,7 @@ func (x *DatasetInfo) String() string {
 func (*DatasetInfo) ProtoMessage() {}
 
 func (x *DatasetInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_dataset_service_proto_msgTypes[4]
+	mi := &file_dataset_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -296,7 +364,7 @@ func (x *DatasetInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DatasetInfo.ProtoReflect.Descriptor instead.
 func (*DatasetInfo) Descriptor() ([]byte, []int) {
-	return file_dataset_service_proto_rawDescGZIP(), []int{4}
+	return file_dataset_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DatasetInfo) GetDatasetName() string {
@@ -343,7 +411,7 @@ type HealthCheckRequest struct {
 
 func (x *HealthCheckRequest) Reset() {
 	*x = HealthCheckRequest{}
-	mi := &file_dataset_service_proto_msgTypes[5]
+	mi := &file_dataset_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +423,7 @@ func (x *HealthCheckRequest) String() string {
 func (*HealthCheckRequest) ProtoMessage() {}
 
 func (x *HealthCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dataset_service_proto_msgTypes[5]
+	mi := &file_dataset_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +436,7 @@ func (x *HealthCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthCheckRequest.ProtoReflect.Descriptor instead.
 func (*HealthCheckRequest) Descriptor() ([]byte, []int) {
-	return file_dataset_service_proto_rawDescGZIP(), []int{5}
+	return file_dataset_service_proto_rawDescGZIP(), []int{6}
 }
 
 // Health check response
@@ -382,7 +450,7 @@ type HealthCheckResponse struct {
 
 func (x *HealthCheckResponse) Reset() {
 	*x = HealthCheckResponse{}
-	mi := &file_dataset_service_proto_msgTypes[6]
+	mi := &file_dataset_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -394,7 +462,7 @@ func (x *HealthCheckResponse) String() string {
 func (*HealthCheckResponse) ProtoMessage() {}
 
 func (x *HealthCheckResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dataset_service_proto_msgTypes[6]
+	mi := &file_dataset_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -407,7 +475,7 @@ func (x *HealthCheckResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthCheckResponse.ProtoReflect.Descriptor instead.
 func (*HealthCheckResponse) Descriptor() ([]byte, []int) {
-	return file_dataset_service_proto_rawDescGZIP(), []int{6}
+	return file_dataset_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *HealthCheckResponse) GetStatus() string {
@@ -441,12 +509,18 @@ const file_dataset_service_proto_rawDesc = "" +
 	"\n" +
 	"batch_size\x18\x02 \x01(\x05R\tbatchSize\x12\x1f\n" +
 	"\vbatch_index\x18\x03 \x01(\x05R\n" +
-	"batchIndex\"d\n" +
+	"batchIndex\"|\n" +
 	"\tDataBatch\x12\x12\n" +
-	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1f\n" +
-	"\vbatch_index\x18\x02 \x01(\x05R\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
+	"\x06labels\x18\x02 \x03(\x05R\x06labels\x12\x1f\n" +
+	"\vbatch_index\x18\x03 \x01(\x05R\n" +
 	"batchIndex\x12\"\n" +
-	"\ris_last_batch\x18\x03 \x01(\bR\visLastBatch\":\n" +
+	"\ris_last_batch\x18\x04 \x01(\bR\visLastBatch\"j\n" +
+	"\x0fClientDataBatch\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1f\n" +
+	"\vbatch_index\x18\x03 \x01(\x05R\n" +
+	"batchIndex\x12\"\n" +
+	"\ris_last_batch\x18\x04 \x01(\bR\visLastBatch\":\n" +
 	"\x15GetDatasetInfoRequest\x12!\n" +
 	"\fdataset_name\x18\x01 \x01(\tR\vdatasetName\"\xb8\x01\n" +
 	"\vDatasetInfo\x12!\n" +
@@ -477,25 +551,26 @@ func file_dataset_service_proto_rawDescGZIP() []byte {
 	return file_dataset_service_proto_rawDescData
 }
 
-var file_dataset_service_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_dataset_service_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_dataset_service_proto_goTypes = []any{
 	(*StreamBatchesRequest)(nil),  // 0: dataset_service.StreamBatchesRequest
 	(*GetBatchRequest)(nil),       // 1: dataset_service.GetBatchRequest
 	(*DataBatch)(nil),             // 2: dataset_service.DataBatch
-	(*GetDatasetInfoRequest)(nil), // 3: dataset_service.GetDatasetInfoRequest
-	(*DatasetInfo)(nil),           // 4: dataset_service.DatasetInfo
-	(*HealthCheckRequest)(nil),    // 5: dataset_service.HealthCheckRequest
-	(*HealthCheckResponse)(nil),   // 6: dataset_service.HealthCheckResponse
+	(*ClientDataBatch)(nil),       // 3: dataset_service.ClientDataBatch
+	(*GetDatasetInfoRequest)(nil), // 4: dataset_service.GetDatasetInfoRequest
+	(*DatasetInfo)(nil),           // 5: dataset_service.DatasetInfo
+	(*HealthCheckRequest)(nil),    // 6: dataset_service.HealthCheckRequest
+	(*HealthCheckResponse)(nil),   // 7: dataset_service.HealthCheckResponse
 }
 var file_dataset_service_proto_depIdxs = []int32{
 	0, // 0: dataset_service.DatasetService.StreamBatches:input_type -> dataset_service.StreamBatchesRequest
 	1, // 1: dataset_service.DatasetService.GetBatch:input_type -> dataset_service.GetBatchRequest
-	3, // 2: dataset_service.DatasetService.GetDatasetInfo:input_type -> dataset_service.GetDatasetInfoRequest
-	5, // 3: dataset_service.DatasetService.HealthCheck:input_type -> dataset_service.HealthCheckRequest
+	4, // 2: dataset_service.DatasetService.GetDatasetInfo:input_type -> dataset_service.GetDatasetInfoRequest
+	6, // 3: dataset_service.DatasetService.HealthCheck:input_type -> dataset_service.HealthCheckRequest
 	2, // 4: dataset_service.DatasetService.StreamBatches:output_type -> dataset_service.DataBatch
 	2, // 5: dataset_service.DatasetService.GetBatch:output_type -> dataset_service.DataBatch
-	4, // 6: dataset_service.DatasetService.GetDatasetInfo:output_type -> dataset_service.DatasetInfo
-	6, // 7: dataset_service.DatasetService.HealthCheck:output_type -> dataset_service.HealthCheckResponse
+	5, // 6: dataset_service.DatasetService.GetDatasetInfo:output_type -> dataset_service.DatasetInfo
+	7, // 7: dataset_service.DatasetService.HealthCheck:output_type -> dataset_service.HealthCheckResponse
 	4, // [4:8] is the sub-list for method output_type
 	0, // [0:4] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -514,7 +589,7 @@ func file_dataset_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dataset_service_proto_rawDesc), len(file_dataset_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

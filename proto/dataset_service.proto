@@ -36,9 +36,16 @@ message GetBatchRequest {
 
 // Response containing a batch of data
 message DataBatch {
-  bytes data = 1;           // serialized tensor data
-  int32 batch_index = 2;       
-  bool is_last_batch = 3;   // indicates if this is the last batch
+  bytes data = 1;
+  repeated int32 labels = 2;
+  int32 batch_index = 3;
+  bool is_last_batch = 4;
+}
+
+message ClientDataBatch {
+  bytes data = 1;
+  int32 batch_index = 3;
+  bool is_last_batch = 4;
 }
 
 // Request for dataset information
@@ -59,7 +66,7 @@ message DatasetInfo {
 message HealthCheckRequest {}
 
 // Health check response
- HealthCheckResponse {
+message HealthCheckResponse {
   string status = 1;  // "SERVING", "NOT_SERVING", "SERVICE_UNKNOWN"
   string message = 2;
 } 
