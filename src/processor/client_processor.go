@@ -10,7 +10,7 @@ import (
 	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
 	datasetpb "github.com/mlops-eval/data-dispatcher-service/src/pb/dataset-service"
 	clientpb "github.com/mlops-eval/data-dispatcher-service/src/pb/new-client-service"
-	"github.com/mlops-eval/data-dispatcher-service/src/rabbitmq"
+	"github.com/mlops-eval/data-dispatcher-service/src/utils/config"
 	"github.com/sirupsen/logrus"
 )
 
@@ -19,7 +19,7 @@ type ClientDataProcessor struct {
 	datasetServiceAddr string
 	logger             *logrus.Logger
 	maxRetries         int
-	rabbitConfig       rabbitmq.Config
+	rabbitConfig       config.MiddlewareConfig
 }
 
 // NewClientDataProcessor creates a new client data processor
@@ -64,7 +64,7 @@ func NewClientDataProcessor() *ClientDataProcessor {
 		rabbitPass = "guest"
 	}
 
-	rabbitConfig := rabbitmq.Config{
+	rabbitConfig := config.MiddlewareConfig{
 		Host:     rabbitHost,
 		Port:     rabbitPort,
 		Username: rabbitUser,
@@ -86,12 +86,12 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 		"routing_key": req.RoutingKey,
 	}).Info("Starting client data processing")
 
-	// Create RabbitMQ publisher
-	publisher, err := rabbitmq.NewPublisher(p.rabbitConfig)
+	// Create RabbitMQ middleware
+	middleware, err := rabbitmq.NewMiddleware(p.rabbitConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create RabbitMQ publisher: %w", err)
+		return fmt.Errorf("failed to create RabbitMQ middleware: %w", err)
 	}
-	defer publisher.Close()
+	defer middleware.Close()
 
 	// Create gRPC client for dataset service
 	grpcClient, err := grpc.NewClient(p.datasetServiceAddr)
@@ -128,7 +128,7 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 
 		batchReq := &datasetpb.GetBatchRequest{
 			DatasetName: datasetName,
-			BatchSize:   batchSize,
+			BatchSize:   BATHSIZE,
 			BatchIndex:  batchIndex,
 		}
 
@@ -154,14 +154,17 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 		}
 
 		// Publish to both exchanges using routing key with retry
-		if err := publisher.PublishBatchWithRetry(ctx, req.RoutingKey, rabbitBatch, p.maxRetries); err != nil {
-			p.logger.WithFields(logrus.Fields{
-				"client_id":   req.ClientId,
-				"batch_index": batchIndex,
-				"routing_key": req.RoutingKey,
-				"error":       err.Error(),
-			}).Error("Failed to publish batch to exchanges")
-			return fmt.Errorf("failed to publish batch %d with routing key %s: %w", batchIndex, req.RoutingKey, err)
+		exchanges := []string{"dataset-exchange", "calibration-exchange"}
+		for _, exchange := range exchanges {
+			if err := middleware.Publish(ctx, req.RoutingKey, rabbitBatch, exchange); err != nil {
+				p.logger.WithFields(logrus.Fields{
+					"client_id":   req.ClientId,
+					"batch_index": batchIndex,
+					"routing_key": req.RoutingKey,
+					"error":       err.Error(),
+				}).Error("Failed to publish batch to exchanges")
+				return fmt.Errorf("failed to publish batch %d with routing key %s: %w", batchIndex, req.RoutingKey, err)
+			}
 		}
 
 		p.logger.WithFields(logrus.Fields{

@@ -11,31 +11,53 @@ import (
 
 type Middleware struct {
 	conn    *amqp.Connection
-	channel *amqp.Channel 
+	channel *amqp.Channel
+	confirms_chan chan amqp.Confirmation
+	logger  *logrus.Logger
 }
 
-func NewMiddleware() (*Middleware, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+const MAX_RETRIES = 5
+
+func NewMiddleware(config Config) (*Middleware, error) {
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+
+	url := fmt.Sprintf("amqp://%s:%s@%s:%d/",
+		config.Username, config.Password, config.Host, config.Port)
+
+	conn, err := amqp.Dial(url)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 
-	ch, err := conn.Channel()
+	channel, err := conn.Channel()
 	if err != nil {
-		return nil, err
+		conn.Close()
+		return nil, fmt.Errorf("failed to open channel: %w", err)
 	}
+
 
 	if err := ch.Confirm(false); err != nil {
 		return nil, err
 	}
 
+	confirms_chan := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+
 	if err := ch.Qos(1, 0, false); err != nil {
 		return nil, err
 	}
 
+	logger.WithFields(logrus.Fields{
+		"host": config.Host,
+		"port": config.Port,
+		"user": config.Username,
+	}).Info("Connected to RabbitMQ")
+
 	return &Middleware{
 		conn:    conn,
 		channel: ch,
+		confirms_chan: confirms_chan,
+		logger:  logger,
 	}, nil
 }
 
@@ -73,24 +95,47 @@ func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error
 	)
 }
 
-func (m *Middleware) BasicSend(routingKey string, message []byte, exchangeName string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()	
-	err := m.channel.PublishWithContext(
-		ctx,
-		exchangeName,
-		routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			Body:         message,
-		},
-	)
-	if err != nil {
-		log.Printf("action: message_sending | result: fail | error: %v | routing_key: %s\n", err, routingKey)
+func (m *Middleware) Publish(routingKey string, message []byte, exchangeName string) error {
+	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := m.channel.PublishWithContext(
+			ctx,
+			exchangeName,
+			routingKey,
+			false, // mandatory
+			false, // immediate
+			amqp.Publishing{
+				DeliveryMode: amqp.Persistent,
+				Body:         message,
+			},
+		)
+		cancel()
+
+		if err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"routing_key": routingKey,
+				"exchange":    exchangeName,
+			}).Error("Failed to publish message to exchange")
+			continue
+		}
+
+		confirmed := <- m.confirms_chan
+
+		if !confirmed.Ack {
+			m.logger.WithFields(logrus.Fields{
+				"routing_key": routingKey,
+				"exchange":    exchangeName,
+			}).Error("Failed to publish message to exchange")
+			continue
+		}
+
+		m.logger.WithFields(logrus.Fields{
+			"routing_key": routingKey,
+			"exchange":    exchangeName,
+		}).Debug("Published message to exchange")
+		
+		return nil
 	}
-	return err
 }
 
 func (m *Middleware) BasicConsume(queueName string, callback func(amqp.Delivery)) error {
