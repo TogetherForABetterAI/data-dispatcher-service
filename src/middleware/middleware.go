@@ -1,12 +1,15 @@
-// middleware.go
+
 package middleware
 
 import (
 	"context"
 	"log"
 	"time"
-
+	"github.com/mlops-eval/data-dispatcher-service/src/config"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"fmt"
+	"github.com/sirupsen/logrus"
+
 )
 
 type Middleware struct {
@@ -14,11 +17,12 @@ type Middleware struct {
 	channel *amqp.Channel
 	confirms_chan chan amqp.Confirmation
 	logger  *logrus.Logger
+	MiddlewareConfig *config.MiddlewareConfig
 }
 
 const MAX_RETRIES = 5
 
-func NewMiddleware(config Config) (*Middleware, error) {
+func NewMiddleware(config *config.MiddlewareConfig) (*Middleware, error) {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
@@ -30,7 +34,7 @@ func NewMiddleware(config Config) (*Middleware, error) {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
 	}
 
-	channel, err := conn.Channel()
+	ch, err := conn.Channel()
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to open channel: %w", err)
@@ -58,6 +62,7 @@ func NewMiddleware(config Config) (*Middleware, error) {
 		channel: ch,
 		confirms_chan: confirms_chan,
 		logger:  logger,
+		MiddlewareConfig: config,
 	}, nil
 }
 
@@ -96,7 +101,7 @@ func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error
 }
 
 func (m *Middleware) Publish(routingKey string, message []byte, exchangeName string) error {
-	for attempt := 1; attempt <= MAX_RETRIES; attempt++ {
+	for attempt := 1; attempt <= m.MiddlewareConfig.MaxRetries; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err := m.channel.PublishWithContext(
 			ctx,
@@ -136,6 +141,7 @@ func (m *Middleware) Publish(routingKey string, message []byte, exchangeName str
 		
 		return nil
 	}
+	return fmt.Errorf("failed to publish message to exchange %s after %d attempts", exchangeName, m.MiddlewareConfig.MaxRetries)
 }
 
 func (m *Middleware) BasicConsume(queueName string, callback func(amqp.Delivery)) error {

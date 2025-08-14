@@ -3,15 +3,14 @@ package processor
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
-
 	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
 	datasetpb "github.com/mlops-eval/data-dispatcher-service/src/pb/dataset-service"
 	clientpb "github.com/mlops-eval/data-dispatcher-service/src/pb/new-client-service"
-	"github.com/mlops-eval/data-dispatcher-service/src/utils/config"
+	"github.com/mlops-eval/data-dispatcher-service/src/config"
+	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/proto"
 )
 
 // ClientDataProcessor handles processing client data requests
@@ -19,7 +18,8 @@ type ClientDataProcessor struct {
 	datasetServiceAddr string
 	logger             *logrus.Logger
 	maxRetries         int
-	rabbitConfig       config.MiddlewareConfig
+	rabbitConfig       *config.MiddlewareConfig
+	grpcConfig         *config.GrpcConfig
 }
 
 // NewClientDataProcessor creates a new client data processor
@@ -27,55 +27,15 @@ func NewClientDataProcessor() *ClientDataProcessor {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-	// Get dataset service address from environment or use default
-	datasetAddr := os.Getenv("DATASET_SERVICE_ADDR")
-	if datasetAddr == "" {
-		datasetAddr = "dataset-grpc-service:50051" // default from existing code
-	}
 
-	// Get max retries from environment or use default
-	maxRetries := 3
-	if retriesStr := os.Getenv("MAX_RETRIES"); retriesStr != "" {
-		if parsed, err := strconv.Atoi(retriesStr); err == nil {
-			maxRetries = parsed
-		}
-	}
-
-	// Get RabbitMQ connection details from environment
-	rabbitHost := os.Getenv("RABBITMQ_HOST")
-	if rabbitHost == "" {
-		rabbitHost = "localhost"
-	}
-
-	rabbitPort := int32(5672) // default RabbitMQ port
-	if portStr := os.Getenv("RABBITMQ_PORT"); portStr != "" {
-		if parsed, err := strconv.ParseInt(portStr, 10, 32); err == nil {
-			rabbitPort = int32(parsed)
-		}
-	}
-
-	rabbitUser := os.Getenv("RABBITMQ_USER")
-	if rabbitUser == "" {
-		rabbitUser = "guest"
-	}
-
-	rabbitPass := os.Getenv("RABBITMQ_PASS")
-	if rabbitPass == "" {
-		rabbitPass = "guest"
-	}
-
-	rabbitConfig := config.MiddlewareConfig{
-		Host:     rabbitHost,
-		Port:     rabbitPort,
-		Username: rabbitUser,
-		Password: rabbitPass,
-	}
+	config := config.InitializeConfig()
 
 	return &ClientDataProcessor{
-		datasetServiceAddr: datasetAddr,
+		datasetServiceAddr: config.GrpcConfig.DatasetAddr,
 		logger:             logger,
-		maxRetries:         maxRetries,
-		rabbitConfig:       rabbitConfig,
+		maxRetries:         config.MiddlewareConfig.MaxRetries,
+		rabbitConfig:       config.MiddlewareConfig,
+		grpcConfig:         config.GrpcConfig,
 	}
 }
 
@@ -87,7 +47,7 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 	}).Info("Starting client data processing")
 
 	// Create RabbitMQ middleware
-	middleware, err := rabbitmq.NewMiddleware(p.rabbitConfig)
+	middleware, err := middleware.NewMiddleware(p.rabbitConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create RabbitMQ middleware: %w", err)
 	}
@@ -99,36 +59,16 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 		return fmt.Errorf("failed to create dataset service client: %w", err)
 	}
 
-	// Get dataset configuration from environment or use defaults
-	datasetName := os.Getenv("DATASET_NAME")
-	if datasetName == "" {
-		datasetName = "mnist" // default from existing code
-	}
-
-	batchSizeStr := os.Getenv("BATCH_SIZE")
-	batchSize := int32(30) // default from existing code
-	if batchSizeStr != "" {
-		if parsed, err := strconv.ParseInt(batchSizeStr, 10, 32); err == nil {
-			batchSize = int32(parsed)
-		}
-	}
 
 	// Start processing batches
 	batchIndex := int32(0)
 	for {
-		select {
-		case <-ctx.Done():
-			p.logger.WithField("client_id", req.ClientId).Info("Client processing cancelled")
-			return ctx.Err()
-		default:
-		}
-
 		// Fetch batch from dataset service with timeout
 		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 
 		batchReq := &datasetpb.GetBatchRequest{
-			DatasetName: datasetName,
-			BatchSize:   BATHSIZE,
+			DatasetName: p.grpcConfig.DatasetName,
+			BatchSize:   p.grpcConfig.BatchSize,
 			BatchIndex:  batchIndex,
 		}
 
@@ -144,26 +84,31 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 			return fmt.Errorf("failed to fetch batch %d: %w", batchIndex, err)
 		}
 
-		// Prepare RabbitMQ message
-		rabbitBatch := &rabbitmq.BatchData{
-			ClientID:    req.ClientId,
-			BatchIndex:  batchIndex,
+		protoBatch := &datasetpb.DataBatch{
 			Data:        batch.GetData(),
+			BatchIndex:  batch.GetBatchIndex(),
 			IsLastBatch: batch.GetIsLastBatch(),
-			Timestamp:   time.Now(),
+		}
+		body, err := proto.Marshal(protoBatch)
+		if err != nil {
+			return fmt.Errorf("failed to marshal protoBatch: %w", err)
 		}
 
 		// Publish to both exchanges using routing key with retry
-		exchanges := []string{"dataset-exchange", "calibration-exchange"}
+		exchanges := []string{config.DATASET_EXCHANGE, config.CALIBRATION_EXCHANGE}
+		rk := req.RoutingKey
 		for _, exchange := range exchanges {
-			if err := middleware.Publish(ctx, req.RoutingKey, rabbitBatch, exchange); err != nil {
+			if exchange == config.CALIBRATION_EXCHANGE {
+				rk = fmt.Sprintf("%s-%s", req.RoutingKey, "data")
+			}
+			if err := middleware.Publish(rk, body, exchange); err != nil {
 				p.logger.WithFields(logrus.Fields{
 					"client_id":   req.ClientId,
 					"batch_index": batchIndex,
-					"routing_key": req.RoutingKey,
+					"routing_key": rk,
 					"error":       err.Error(),
 				}).Error("Failed to publish batch to exchanges")
-				return fmt.Errorf("failed to publish batch %d with routing key %s: %w", batchIndex, req.RoutingKey, err)
+				return fmt.Errorf("failed to publish batch %d with routing key %s: %w", batchIndex, rk, err)
 			}
 		}
 
