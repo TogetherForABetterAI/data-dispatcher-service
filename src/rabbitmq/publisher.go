@@ -18,23 +18,6 @@ type Publisher struct {
 	logger  *logrus.Logger
 }
 
-// Config holds RabbitMQ connection configuration
-type Config struct {
-	Host     string
-	Port     int32
-	Username string
-	Password string
-}
-
-// BatchData represents the data structure to be published to RabbitMQ
-type BatchData struct {
-	ClientID    string    `json:"client_id"`
-	BatchIndex  int32     `json:"batch_index"`
-	Data        []byte    `json:"data"`
-	IsLastBatch bool      `json:"is_last_batch"`
-	Timestamp   time.Time `json:"timestamp"`
-}
-
 // NewPublisher creates a new RabbitMQ publisher with the given configuration
 func NewPublisher(config Config) (*Publisher, error) {
 	logger := logrus.New()

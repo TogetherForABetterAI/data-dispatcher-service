@@ -1,15 +1,8 @@
 services:
   data-dispatcher-service:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.server
+    build: .
     container_name: data-dispatcher-service
-    environment:
-      - DATASET_SERVICE_ADDR=dataset-grpc-service:50051
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=guest
-      - RABBITMQ_PASSWORD=guest
+    env_file: .env
     volumes:
       - ./src/pb:/app/src/pb
     networks:

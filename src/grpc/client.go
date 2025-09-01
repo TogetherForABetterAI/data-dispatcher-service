@@ -3,7 +3,6 @@ package grpc
 import (
 	"context"
 	"fmt"
-
 	datasetpb "github.com/mlops-eval/data-dispatcher-service/src/pb/dataset-service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -31,7 +30,7 @@ func NewClient(serverAddr string) (*Client, error) {
 }
 
 // GetBatch fetches a single batch from the dataset service
-func (c *Client) GetBatch(ctx context.Context, req *datasetpb.GetBatchRequest) (*datasetpb.DataBatch, error) {
+func (c *Client) GetBatch(ctx context.Context, req *datasetpb.GetBatchRequest) (*datasetpb.DataBatchLabeled, error) {
 	return c.client.GetBatch(ctx, req)
 }
 
