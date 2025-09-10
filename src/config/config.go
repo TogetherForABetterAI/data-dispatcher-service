@@ -15,12 +15,13 @@ type GrpcConfig struct {
 	DatasetName string
 	BatchSize   int32
 }
+
 // Config holds RabbitMQ connection configuration
 type MiddlewareConfig struct {
-	Host     string
-	Port     int32
-	Username string
-	Password string
+	Host       string
+	Port       int32
+	Username   string
+	Password   string
 	MaxRetries int
 }
 
@@ -69,18 +70,18 @@ func InitializeConfig() *GlobalConfig {
 	}
 
 	batchSizeStr := os.Getenv("BATCH_SIZE")
-	batchSize := int32(300)
+	batchSize := int32(20)
 	if batchSizeStr != "" {
 		if parsed, err := strconv.ParseInt(batchSizeStr, 10, 32); err == nil {
 			batchSize = int32(parsed)
 		}
 	}
-	
+
 	middlewareConfig := MiddlewareConfig{
-		Host:     rabbitHost,
-		Port:     rabbitPort,
-		Username: rabbitUser,
-		Password: rabbitPass,
+		Host:       rabbitHost,
+		Port:       rabbitPort,
+		Username:   rabbitUser,
+		Password:   rabbitPass,
 		MaxRetries: maxRetries,
 	}
 	grpcConfig := GrpcConfig{
@@ -95,6 +96,6 @@ func InitializeConfig() *GlobalConfig {
 	}
 }
 
-const(
+const (
 	DATASET_EXCHANGE = "dataset-exchange"
 )

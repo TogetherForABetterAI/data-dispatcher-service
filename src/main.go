@@ -7,8 +7,8 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/mlops-eval/data-dispatcher-service/src/processor"
 	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
+	"github.com/mlops-eval/data-dispatcher-service/src/processor"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,7 +21,7 @@ func main() {
 	// Setup logging
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
-	
+
 	// Set log level from environment
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		if level, err := logrus.ParseLevel(logLevel); err == nil {
@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// Get port from environment or use default
-	port := 8080
+	port := 50058
 	if portStr := os.Getenv("GRPC_PORT"); portStr != "" {
 		if parsed, err := strconv.Atoi(portStr); err == nil {
 			port = parsed

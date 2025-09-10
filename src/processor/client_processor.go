@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/mlops-eval/data-dispatcher-service/src/config"
 	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
+	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
 	datasetpb "github.com/mlops-eval/data-dispatcher-service/src/pb/dataset-service"
 	clientpb "github.com/mlops-eval/data-dispatcher-service/src/pb/new-client-service"
-	"github.com/mlops-eval/data-dispatcher-service/src/config"
-	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
@@ -27,7 +28,6 @@ func NewClientDataProcessor() *ClientDataProcessor {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-
 	config := config.InitializeConfig()
 
 	return &ClientDataProcessor{
@@ -42,12 +42,12 @@ func NewClientDataProcessor() *ClientDataProcessor {
 // ProcessClient implements the ClientProcessor interface
 func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.NewClientRequest) error {
 	p.logger.WithFields(logrus.Fields{
-		"client_id":   req.ClientId,
-		"routing_key": req.RoutingKey,
+		"client_id": req.ClientId,
 	}).Info("Starting client data processing")
 
 	// Create RabbitMQ middleware
 	middleware, err := middleware.NewMiddleware(p.rabbitConfig)
+	middleware.DeclareExchange(config.DATASET_EXCHANGE, "direct")
 	if err != nil {
 		return fmt.Errorf("failed to create RabbitMQ middleware: %w", err)
 	}
@@ -58,7 +58,6 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 	if err != nil {
 		return fmt.Errorf("failed to create dataset service client: %w", err)
 	}
-
 
 	// Start processing batches
 	batchIndex := int32(0)
@@ -108,11 +107,11 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 
 		// Publish batches to exchanges
 		routingKeys := []struct {
-			key   string
-			body  []byte
+			key  string
+			body []byte
 		}{
-			{fmt.Sprintf("%s.unlabeled", req.RoutingKey), unlabeledBody},
-			{fmt.Sprintf("%s.labeled", req.RoutingKey), labeledBody},
+			{fmt.Sprintf("%s.unlabeled", req.ClientId), unlabeledBody},
+			{fmt.Sprintf("%s.labeled", req.ClientId), labeledBody},
 		}
 
 		for _, rk := range routingKeys {
@@ -130,7 +129,6 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 		p.logger.WithFields(logrus.Fields{
 			"client_id":     req.ClientId,
 			"batch_index":   batchIndex,
-			"routing_key":   req.RoutingKey,
 			"is_last_batch": batch.GetIsLastBatch(),
 			"data_size":     len(batch.GetData()),
 		}).Info("Successfully published batch to both exchanges")

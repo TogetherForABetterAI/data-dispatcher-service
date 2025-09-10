@@ -1,10 +1,9 @@
 syntax = "proto3";
 
-package newClient;
+package new_client;
 
 option go_package = "github.com/mlops-eval/data-dispatcher-service/src/pb";
 
-// Client Notification service definition
 service ClientNotificationService {
   // Notify the service about a new authenticated client that needs data streaming
   rpc NotifyNewClient(NewClientRequest) returns (NewClientResponse);
@@ -16,10 +15,10 @@ service ClientNotificationService {
 // Request message when a new client is authenticated and ready to receive data
 message NewClientRequest {
   string client_id = 1;
-  string routing_key = 2;
-  string outputs_queue_calibration = 3;
-  string inputs_queue_calibration = 4;
+  string inputs_format = 2;
+  string outputs_format = 3;
 }
+
 // Response message acknowledging the new client notification
 message NewClientResponse {
   string status = 1;       // Status of the operation (e.g., "OK", "ERROR")
