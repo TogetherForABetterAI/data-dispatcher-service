@@ -22,14 +22,14 @@ type ClientProcessor interface {
 type ClientDataProcessor struct {
 	logger            *logrus.Logger
 	datasetGrpcClient DatasetServiceClient
-	middleware        MiddlewareInterface
+	middleware        IMiddleware
 	grpcConfig        config.GrpcConfig
 }
 
 // NewClientDataProcessor creates a new client data processor
 func NewClientDataProcessor(
 	datasetGrpcClient DatasetServiceClient,
-	middleware MiddlewareInterface,
+	middleware IMiddleware,
 	logger *logrus.Logger,
 	config *config.GrpcConfig,
 ) *ClientDataProcessor {

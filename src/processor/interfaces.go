@@ -12,7 +12,7 @@ type DatasetServiceClient interface {
 	Close() error
 }
 
-type MiddlewareInterface interface {
+type IMiddleware interface {
 	Publish(routingKey string, message []byte, exchangeName string) error
 	Close()
 }
