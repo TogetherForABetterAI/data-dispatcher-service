@@ -1,22 +1,21 @@
-
 package middleware
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
+
 	"github.com/mlops-eval/data-dispatcher-service/src/config"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"fmt"
 	"github.com/sirupsen/logrus"
-
 )
 
 type Middleware struct {
-	conn    *amqp.Connection
-	channel *amqp.Channel
-	confirms_chan chan amqp.Confirmation
-	logger  *logrus.Logger
+	conn             *amqp.Connection
+	channel          *amqp.Channel
+	confirms_chan    chan amqp.Confirmation
+	logger           *logrus.Logger
 	MiddlewareConfig *config.MiddlewareConfig
 }
 
@@ -27,7 +26,7 @@ func NewMiddleware(config *config.MiddlewareConfig) (*Middleware, error) {
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
 	url := fmt.Sprintf("amqp://%s:%s@%s:%d/",
-		config.Username, config.Password, config.Host, config.Port)
+		config.GetUsername(), config.GetPassword(), config.GetHost(), config.GetPort())
 
 	conn, err := amqp.Dial(url)
 	if err != nil {
@@ -40,7 +39,6 @@ func NewMiddleware(config *config.MiddlewareConfig) (*Middleware, error) {
 		return nil, fmt.Errorf("failed to open channel: %w", err)
 	}
 
-
 	if err := ch.Confirm(false); err != nil {
 		return nil, err
 	}
@@ -52,28 +50,28 @@ func NewMiddleware(config *config.MiddlewareConfig) (*Middleware, error) {
 	}
 
 	logger.WithFields(logrus.Fields{
-		"host": config.Host,
-		"port": config.Port,
-		"user": config.Username,
+		"host": config.GetHost(),
+		"port": config.GetPort(),
+		"user": config.GetUsername(),
 	}).Info("Connected to RabbitMQ")
 
 	return &Middleware{
-		conn:    conn,
-		channel: ch,
-		confirms_chan: confirms_chan,
-		logger:  logger,
+		conn:             conn,
+		channel:          ch,
+		confirms_chan:    confirms_chan,
+		logger:           logger,
 		MiddlewareConfig: config,
 	}, nil
 }
 
 func (m *Middleware) DeclareQueue(queueName string) error {
 	_, err := m.channel.QueueDeclare(
-		"",    	// name
-		true,	// durable
-		false, 	// delete when unused
-		true,	// exclusive
-		false, 	// no-wait
-		nil,   	// arguments
+		queueName,    // name
+		true,  // durable
+		false, // delete when unused
+		true,  // exclusive
+		false, // no-wait
+		nil,   // arguments
 	)
 	return err
 }
@@ -82,11 +80,11 @@ func (m *Middleware) DeclareExchange(exchangeName string, exchangeType string) e
 	return m.channel.ExchangeDeclare(
 		exchangeName,
 		exchangeType,
-		true,  	// durable
-		false, 	// autoDelete
-		false, 	// internal
-		false, 	// noWait
-		nil,	// arguments
+		true,  // durable
+		false, // autoDelete
+		false, // internal
+		false, // noWait
+		nil,   // arguments
 	)
 }
 
@@ -101,7 +99,7 @@ func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error
 }
 
 func (m *Middleware) Publish(routingKey string, message []byte, exchangeName string) error {
-	for attempt := 1; attempt <= m.MiddlewareConfig.MaxRetries; attempt++ {
+	for attempt := 1; attempt <= m.MiddlewareConfig.GetMaxRetries(); attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err := m.channel.PublishWithContext(
 			ctx,
@@ -124,7 +122,7 @@ func (m *Middleware) Publish(routingKey string, message []byte, exchangeName str
 			continue
 		}
 
-		confirmed := <- m.confirms_chan
+		confirmed := <-m.confirms_chan
 
 		if !confirmed.Ack {
 			m.logger.WithFields(logrus.Fields{
@@ -138,21 +136,21 @@ func (m *Middleware) Publish(routingKey string, message []byte, exchangeName str
 			"routing_key": routingKey,
 			"exchange":    exchangeName,
 		}).Debug("Published message to exchange")
-		
+
 		return nil
 	}
-	return fmt.Errorf("failed to publish message to exchange %s after %d attempts", exchangeName, m.MiddlewareConfig.MaxRetries)
+	return fmt.Errorf("failed to publish message to exchange %s after %d attempts", exchangeName, m.MiddlewareConfig.GetMaxRetries())
 }
 
 func (m *Middleware) BasicConsume(queueName string, callback func(amqp.Delivery)) error {
 	msgs, err := m.channel.Consume(
 		queueName,
-		"",    	// consumer
-		false, 	// autoAck
-		false, 	// exclusive
-		false, 	// noLocal
-		false, 	// noWait
-		nil,	// args
+		"",    // consumer
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
 	)
 	if err != nil {
 		return err
