@@ -1,22 +1,27 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 type GlobalConfig struct {
+	LogLevel         string
+	ServiceName      string
 	MiddlewareConfig *MiddlewareConfig
 	GrpcConfig       *GrpcConfig
 }
 
 type GrpcConfig struct {
-	DatasetAddr string
-	DatasetName string
-	BatchSize   int32
+	DatasetServiceAddr string
+	DatasetName        string
+	BatchSize          int32
 }
 
-// Config holds RabbitMQ connection configuration
+// MiddlewareConfig holds RabbitMQ connection configuration
 type MiddlewareConfig struct {
 	Host       string
 	Port       int32
@@ -25,75 +30,101 @@ type MiddlewareConfig struct {
 	MaxRetries int
 }
 
-func InitializeConfig() *GlobalConfig {
+func NewConfig() (GlobalConfig, error) {
+	// Load environment variables
+	if err := godotenv.Load(); err != nil {
+		return GlobalConfig{}, fmt.Errorf("failed to load .env file: %w", err)
+	}
+
 	// Get RabbitMQ connection details from environment
 	rabbitHost := os.Getenv("RABBITMQ_HOST")
 	if rabbitHost == "" {
-		rabbitHost = "localhost"
+		return GlobalConfig{}, fmt.Errorf("RABBITMQ_HOST environment variable is required")
 	}
 
-	rabbitPort := int32(5672) // default RabbitMQ port
-	if portStr := os.Getenv("RABBITMQ_PORT"); portStr != "" {
-		if parsed, err := strconv.ParseInt(portStr, 10, 32); err == nil {
-			rabbitPort = int32(parsed)
-		}
+	rabbitPortStr := os.Getenv("RABBITMQ_PORT")
+	if rabbitPortStr == "" {
+		return GlobalConfig{}, fmt.Errorf("RABBITMQ_PORT environment variable is required")
+	}
+	rabbitPort, err := strconv.ParseInt(rabbitPortStr, 10, 32)
+	if err != nil {
+		return GlobalConfig{}, fmt.Errorf("RABBITMQ_PORT must be a valid integer: %w", err)
 	}
 
 	rabbitUser := os.Getenv("RABBITMQ_USER")
 	if rabbitUser == "" {
-		rabbitUser = "guest"
+		return GlobalConfig{}, fmt.Errorf("RABBITMQ_USER environment variable is required")
 	}
 
 	rabbitPass := os.Getenv("RABBITMQ_PASS")
 	if rabbitPass == "" {
-		rabbitPass = "guest"
+		return GlobalConfig{}, fmt.Errorf("RABBITMQ_PASS environment variable is required")
 	}
 
-	// Get max retries from environment or use default
-	maxRetries := 3
-	if retriesStr := os.Getenv("MAX_RETRIES"); retriesStr != "" {
-		if parsed, err := strconv.Atoi(retriesStr); err == nil {
-			maxRetries = parsed
-		}
+	// Set log level from environment
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		return GlobalConfig{}, fmt.Errorf("LOG_LEVEL environment variable is required")
 	}
 
-	// Get dataset service address from environment or use default
+	// Get dataset service address from environment
 	datasetAddr := os.Getenv("DATASET_SERVICE_ADDR")
 	if datasetAddr == "" {
-		datasetAddr = "dataset-grpc-service:50051"
+		return GlobalConfig{}, fmt.Errorf("DATASET_SERVICE_ADDR environment variable is required")
 	}
 
-	// Get dataset configuration from environment or use defaults
+	// Get dataset name from environment
 	datasetName := os.Getenv("DATASET_NAME")
 	if datasetName == "" {
-		datasetName = "mnist"
+		return GlobalConfig{}, fmt.Errorf("DATASET_NAME environment variable is required")
 	}
 
+	// Get batch size from environment
 	batchSizeStr := os.Getenv("BATCH_SIZE")
-	batchSize := int32(20)
-	if batchSizeStr != "" {
-		if parsed, err := strconv.ParseInt(batchSizeStr, 10, 32); err == nil {
-			batchSize = int32(parsed)
+	if batchSizeStr == "" {
+		return GlobalConfig{}, fmt.Errorf("BATCH_SIZE environment variable is required")
+	}
+	batchSize, err := strconv.ParseInt(batchSizeStr, 10, 32)
+	if err != nil {
+		return GlobalConfig{}, fmt.Errorf("BATCH_SIZE must be a valid integer: %w", err)
+	}
+
+	// Get max retries from environment (optional with default)
+	maxRetries := 3
+	if retriesStr := os.Getenv("MAX_RETRIES"); retriesStr != "" {
+		parsed, err := strconv.Atoi(retriesStr)
+		if err != nil {
+			return GlobalConfig{}, fmt.Errorf("MAX_RETRIES must be a valid integer: %w", err)
 		}
+		maxRetries = parsed
 	}
 
-	middlewareConfig := MiddlewareConfig{
-		Host:       rabbitHost,
-		Port:       rabbitPort,
-		Username:   rabbitUser,
-		Password:   rabbitPass,
-		MaxRetries: maxRetries,
-	}
-	grpcConfig := GrpcConfig{
-		DatasetAddr: datasetAddr,
-		DatasetName: datasetName,
-		BatchSize:   batchSize,
-	}
+	return GlobalConfig{
+		LogLevel:    logLevel,
+		ServiceName: "data-dispatcher-service",
+		MiddlewareConfig: &MiddlewareConfig{
+			Host:       rabbitHost,
+			Port:       int32(rabbitPort),
+			Username:   rabbitUser,
+			Password:   rabbitPass,
+			MaxRetries: maxRetries,
+		},
+		GrpcConfig: &GrpcConfig{
+			DatasetServiceAddr: datasetAddr,
+			DatasetName:        datasetName,
+			BatchSize:          int32(batchSize),
+		},
+	}, nil
+}
 
-	return &GlobalConfig{
-		MiddlewareConfig: &middlewareConfig,
-		GrpcConfig:       &grpcConfig,
+var Config GlobalConfig
+
+func init() {
+	config, err := NewConfig()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to load configuration: %v", err))
 	}
+	Config = config
 }
 
 const (
