@@ -8,26 +8,33 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const (
+	DATASET_EXCHANGE = "dataset-exchange"
+	NEW_CONNECTIONS_EXCHANGE = "new-connections-exchange"
+)
+
+
 type GlobalConfig struct {
-	LogLevel         string
-	ServiceName      string
-	MiddlewareConfig *MiddlewareConfig
-	GrpcConfig       *GrpcConfig
+	logLevel         string
+	serviceName      string
+	containerName    string
+	middlewareConfig *MiddlewareConfig
+	grpcConfig       *GrpcConfig
 }
 
 type GrpcConfig struct {
-	DatasetServiceAddr string
-	DatasetName        string
-	BatchSize          int32
+	datasetServiceAddr string
+	datasetName        string
+	batchSize          int32
 }
 
 // MiddlewareConfig holds RabbitMQ connection configuration
 type MiddlewareConfig struct {
-	Host       string
-	Port       int32
-	Username   string
-	Password   string
-	MaxRetries int
+	host       string
+	port       int32
+	username   string
+	password   string
+	maxRetries int
 }
 
 func NewConfig() (GlobalConfig, error) {
@@ -99,20 +106,27 @@ func NewConfig() (GlobalConfig, error) {
 		maxRetries = parsed
 	}
 
+	// Get container name from hostname (automatic detection)
+	containerName, err := os.Hostname()
+	if err != nil {
+		return GlobalConfig{}, fmt.Errorf("failed to get container hostname: %w", err)
+	}
+
 	return GlobalConfig{
-		LogLevel:    logLevel,
-		ServiceName: "data-dispatcher-service",
-		MiddlewareConfig: &MiddlewareConfig{
-			Host:       rabbitHost,
-			Port:       int32(rabbitPort),
-			Username:   rabbitUser,
-			Password:   rabbitPass,
-			MaxRetries: maxRetries,
+		logLevel:      logLevel,
+		serviceName:   "data-dispatcher-service",
+		containerName: containerName,
+		middlewareConfig: &MiddlewareConfig{
+			host:       rabbitHost,
+			port:       int32(rabbitPort),
+			username:   rabbitUser,
+			password:   rabbitPass,
+			maxRetries: maxRetries,
 		},
-		GrpcConfig: &GrpcConfig{
-			DatasetServiceAddr: datasetAddr,
-			DatasetName:        datasetName,
-			BatchSize:          int32(batchSize),
+		grpcConfig: &GrpcConfig{
+			datasetServiceAddr: datasetAddr,
+			datasetName:        datasetName,
+			batchSize:          int32(batchSize),
 		},
 	}, nil
 }
@@ -127,6 +141,62 @@ func init() {
 	Config = config
 }
 
-const (
-	DATASET_EXCHANGE = "dataset-exchange"
-)
+// GetQueueName returns the queue name following the pattern: {container_name}-new-connections-queue
+func (c GlobalConfig) GetQueueName() string {
+	return fmt.Sprintf("%s-new-connections-queue", c.containerName)
+}
+
+// GlobalConfig getters
+func (c GlobalConfig) GetLogLevel() string {
+	return c.logLevel
+}
+
+func (c GlobalConfig) GetServiceName() string {
+	return c.serviceName
+}
+
+func (c GlobalConfig) GetContainerName() string {
+	return c.containerName
+}
+
+func (c GlobalConfig) GetMiddlewareConfig() *MiddlewareConfig {
+	return c.middlewareConfig
+}
+
+func (c GlobalConfig) GetGrpcConfig() *GrpcConfig {
+	return c.grpcConfig
+}
+
+// MiddlewareConfig getters
+func (m MiddlewareConfig) GetHost() string {
+	return m.host
+}
+
+func (m MiddlewareConfig) GetPort() int32 {
+	return m.port
+}
+
+func (m MiddlewareConfig) GetUsername() string {
+	return m.username
+}
+
+func (m MiddlewareConfig) GetPassword() string {
+	return m.password
+}
+
+func (m MiddlewareConfig) GetMaxRetries() int {
+	return m.maxRetries
+}
+
+// GrpcConfig getters
+func (g GrpcConfig) GetDatasetServiceAddr() string {
+	return g.datasetServiceAddr
+}
+
+func (g GrpcConfig) GetDatasetName() string {
+	return g.datasetName
+}
+
+func (g GrpcConfig) GetBatchSize() int32 {
+	return g.batchSize
+}
