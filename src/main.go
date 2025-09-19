@@ -8,18 +8,23 @@ import (
 	"syscall"
 
 	"github.com/mlops-eval/data-dispatcher-service/src/config"
-	"github.com/mlops-eval/data-dispatcher-service/src/processor"
-	"github.com/mlops-eval/data-dispatcher-service/src/rabbitmq"
+	"github.com/mlops-eval/data-dispatcher-service/src/server"
 )
 
 func main() {
 	config := loadConfig()
-	setupLogging()
-	consumer := createConsumer(config)
-	startServiceWithGracefulShutdown(consumer, config)
+	setupLogging(config)
+
+	srv, err := server.NewServer(config)
+	if err != nil {
+		slog.Error("Failed to initialize server", "error", err)
+		return
+	}
+
+	startServiceWithGracefulShutdown(srv, config)
 }
 
-func loadConfig() *config.GlobalConfig {
+func loadConfig() config.GlobalConfig {
 	config, err := config.NewConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -27,42 +32,39 @@ func loadConfig() *config.GlobalConfig {
 	return config
 }
 
-func setupLogging() {
+func setupLogging(config config.GlobalConfig) {
+	// Set log level from configuration
+	logLevel := slog.LevelInfo
+	switch config.GetLogLevel() {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	}))
 	slog.SetDefault(logger)
 }
 
-func createConsumer(config *config.GlobalConfig) *rabbitmq.Consumer {
-	// Create client processor
-	clientProcessor := processor.NewClientDataProcessor()
-
-	// Create RabbitMQ consumer for new client connection notifications
-	consumer, err := rabbitmq.NewConsumer(config.MiddlewareConfig, clientProcessor)
-	if err != nil {
-		log.Fatalf("Failed to create RabbitMQ consumer: %v", err)
-	}
-
-	return consumer
-}
-
-func startServiceWithGracefulShutdown(consumer *rabbitmq.Consumer, config *config.GlobalConfig) {
+func startServiceWithGracefulShutdown(srv *server.Server, config config.GlobalConfig) {
 	// Channel to listen for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start consumer in a goroutine
+	// Start server in a goroutine
 	go func() {
 		slog.Info("Starting service",
-			"service", config.ServiceConfig.Name,
-			"version", config.ServiceConfig.Version)
+			"service", config.GetServiceName())
 
-		if err := consumer.Start(); err != nil {
-			log.Fatalf("Failed to start RabbitMQ consumer: %v", err)
+		if err := srv.Start(); err != nil {
+			log.Fatalf("Failed to start RabbitMQ server: %v", err)
 		}
 
-		slog.Info("RabbitMQ consumer started successfully")
+		slog.Info("RabbitMQ server started successfully")
 	}()
 
 	// Wait for interrupt signal
@@ -70,6 +72,6 @@ func startServiceWithGracefulShutdown(consumer *rabbitmq.Consumer, config *confi
 	slog.Info("Shutting down service...")
 
 	// Attempt graceful shutdown
-	consumer.Stop()
+	srv.Stop()
 	slog.Info("Service exited gracefully")
 }
