@@ -77,9 +77,12 @@ func NewClientDataProcessorFromConfig(globalConfig *config.GlobalConfig, logger 
 
 // ProcessClient implements the ClientProcessor interface
 func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.NewClientRequest) error {
+	// Use client_id as routing key
+	routingKey := req.ClientId
+
 	p.logger.WithFields(logrus.Fields{
 		"client_id":   req.ClientId,
-		"routing_key": req.RoutingKey,
+		"routing_key": routingKey,
 		"model_type":  req.ModelType,
 	}).Info("Starting client data processing")
 
@@ -109,7 +112,7 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 			return fmt.Errorf("failed to fetch batch %d: %w", batchIndex, err)
 		}
 
-		if err := p.publishBatch(req.RoutingKey, batch); err != nil {
+		if err := p.publishBatch(routingKey, batch); err != nil {
 			p.logger.WithFields(logrus.Fields{
 				"client_id":   req.ClientId,
 				"batch_index": batchIndex,
@@ -121,7 +124,7 @@ func (p *ClientDataProcessor) ProcessClient(ctx context.Context, req *clientpb.N
 		p.logger.WithFields(logrus.Fields{
 			"client_id":     req.ClientId,
 			"batch_index":   batchIndex,
-			"routing_key":   req.RoutingKey,
+			"routing_key":   routingKey,
 			"is_last_batch": batch.GetIsLastBatch(),
 			"data_size":     len(batch.GetData()),
 		}).Info("Successfully published batch to both exchanges")

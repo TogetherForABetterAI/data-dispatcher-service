@@ -43,9 +43,8 @@ func NewDataDispatcherServer(processor ClientProcessor) *DataDispatcherServer {
 // NotifyNewClient handles new client notifications and spawns a goroutine to process them
 func (s *DataDispatcherServer) NotifyNewClient(ctx context.Context, req *clientpb.NewClientRequest) (*clientpb.NewClientResponse, error) {
 	s.logger.WithFields(logrus.Fields{
-		"client_id":   req.ClientId,
-		"routing_key": req.RoutingKey,
-		"model_type":  req.ModelType,
+		"client_id":  req.ClientId,
+		"model_type": req.ModelType,
 	}).Info("Received new client notification")
 
 	// Validate request
@@ -53,13 +52,6 @@ func (s *DataDispatcherServer) NotifyNewClient(ctx context.Context, req *clientp
 		return &clientpb.NewClientResponse{
 			Status:  "ERROR",
 			Message: "client_id is required",
-		}, nil
-	}
-
-	if req.RoutingKey == "" {
-		return &clientpb.NewClientResponse{
-			Status:  "ERROR",
-			Message: "routing_key is required",
 		}, nil
 	}
 

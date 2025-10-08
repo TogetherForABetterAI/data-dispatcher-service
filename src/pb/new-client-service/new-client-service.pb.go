@@ -25,10 +25,9 @@ const (
 type NewClientRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ClientId      string                 `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	RoutingKey    string                 `protobuf:"bytes,2,opt,name=routing_key,json=routingKey,proto3" json:"routing_key,omitempty"` // RabbitMQ routing key for message distribution
-	InputsFormat  string                 `protobuf:"bytes,3,opt,name=inputs_format,json=inputsFormat,proto3" json:"inputs_format,omitempty"`
-	OutputsFormat string                 `protobuf:"bytes,4,opt,name=outputs_format,json=outputsFormat,proto3" json:"outputs_format,omitempty"`
-	ModelType     string                 `protobuf:"bytes,5,opt,name=model_type,json=modelType,proto3" json:"model_type,omitempty"` // Type of model (mnist, acdc) - determines dataset selection
+	InputsFormat  string                 `protobuf:"bytes,2,opt,name=inputs_format,json=inputsFormat,proto3" json:"inputs_format,omitempty"`
+	OutputsFormat string                 `protobuf:"bytes,3,opt,name=outputs_format,json=outputsFormat,proto3" json:"outputs_format,omitempty"`
+	ModelType     string                 `protobuf:"bytes,4,opt,name=model_type,json=modelType,proto3" json:"model_type,omitempty"` // Type of model (mnist, acdc) - determines dataset selection
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,13 +65,6 @@ func (*NewClientRequest) Descriptor() ([]byte, []int) {
 func (x *NewClientRequest) GetClientId() string {
 	if x != nil {
 		return x.ClientId
-	}
-	return ""
-}
-
-func (x *NewClientRequest) GetRoutingKey() string {
-	if x != nil {
-		return x.RoutingKey
 	}
 	return ""
 }
@@ -246,15 +238,13 @@ var File_new_client_service_proto protoreflect.FileDescriptor
 const file_new_client_service_proto_rawDesc = "" +
 	"\n" +
 	"\x18new-client-service.proto\x12\n" +
-	"new_client\"\xbb\x01\n" +
+	"new_client\"\x9a\x01\n" +
 	"\x10NewClientRequest\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12\x1f\n" +
-	"\vrouting_key\x18\x02 \x01(\tR\n" +
-	"routingKey\x12#\n" +
-	"\rinputs_format\x18\x03 \x01(\tR\finputsFormat\x12%\n" +
-	"\x0eoutputs_format\x18\x04 \x01(\tR\routputsFormat\x12\x1d\n" +
+	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12#\n" +
+	"\rinputs_format\x18\x02 \x01(\tR\finputsFormat\x12%\n" +
+	"\x0eoutputs_format\x18\x03 \x01(\tR\routputsFormat\x12\x1d\n" +
 	"\n" +
-	"model_type\x18\x05 \x01(\tR\tmodelType\"E\n" +
+	"model_type\x18\x04 \x01(\tR\tmodelType\"E\n" +
 	"\x11NewClientResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x14\n" +

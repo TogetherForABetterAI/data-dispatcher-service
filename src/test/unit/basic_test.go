@@ -24,7 +24,7 @@ func TestNewClientDataProcessor(t *testing.T) {
 	processorInstance := processor.NewClientDataProcessor(
 		mockDatasetClient,
 		mockPublisher,
-		nil, 
+		nil,
 		grpcConfig,
 	)
 
@@ -37,7 +37,7 @@ func TestSampleData(t *testing.T) {
 	assert.NotNil(t, batch)
 	assert.Equal(t, int32(0), batch.BatchIndex)
 	assert.True(t, batch.IsLastBatch)
-	assert.Len(t, batch.Data, 9) 
+	assert.Len(t, batch.Data, 9)
 	assert.Len(t, batch.Labels, 3)
 
 	batches := testdata.SampleBatches(3)
@@ -62,24 +62,24 @@ func TestClientRequest_Validation(t *testing.T) {
 		{
 			name: "valid request",
 			request: &clientpb.NewClientRequest{
-				ClientId:   "test-client",
-				RoutingKey: "test.routing.key",
+				ClientId:  "test-client",
+				ModelType: "mnist",
 			},
 			hasError: false,
 		},
 		{
 			name: "empty client id",
 			request: &clientpb.NewClientRequest{
-				ClientId:   "",
-				RoutingKey: "test.routing.key",
+				ClientId:  "",
+				ModelType: "mnist",
 			},
 			hasError: true,
 		},
 		{
-			name: "empty routing key",
+			name: "empty model type",
 			request: &clientpb.NewClientRequest{
-				ClientId:   "test-client",
-				RoutingKey: "",
+				ClientId:  "test-client",
+				ModelType: "",
 			},
 			hasError: true,
 		},
@@ -97,10 +97,10 @@ func TestClientRequest_Validation(t *testing.T) {
 			}
 
 			if tt.hasError {
-				assert.True(t, tt.request.ClientId == "" || tt.request.RoutingKey == "")
+				assert.True(t, tt.request.ClientId == "" || tt.request.ModelType == "")
 			} else {
 				assert.NotEmpty(t, tt.request.ClientId)
-				assert.NotEmpty(t, tt.request.RoutingKey)
+				assert.NotEmpty(t, tt.request.ModelType)
 			}
 		})
 	}

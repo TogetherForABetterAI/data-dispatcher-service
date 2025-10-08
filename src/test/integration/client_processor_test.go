@@ -35,7 +35,6 @@ func TestClientDataProcessor_ProcessClient_SingleBatch(t *testing.T) {
 
 	req := &clientpb.NewClientRequest{
 		ClientId:   "test-client-123",
-		RoutingKey: "test.routing.key",
 	}
 
 	err := processorInstance.ProcessClient(ctx, req)
@@ -74,7 +73,6 @@ func TestClientDataProcessor_ProcessClient_Success(t *testing.T) {
 
 	req := &clientpb.NewClientRequest{
 		ClientId:   "test-client-123",
-		RoutingKey: "test.routing.key",
 	}
 
 	err := processorInstance.ProcessClient(ctx, req)
@@ -104,7 +102,6 @@ func TestClientDataProcessor_ProcessClient_DatasetServiceError(t *testing.T) {
 
 	req := &clientpb.NewClientRequest{
 		ClientId:   "test-client-123",
-		RoutingKey: "test.routing.key",
 	}
 
 	err := processorInstance.ProcessClient(ctx, req)
@@ -136,7 +133,6 @@ func TestClientDataProcessor_ProcessClient_PublishError(t *testing.T) {
 
 	req := &clientpb.NewClientRequest{
 		ClientId:   "test-client-123",
-		RoutingKey: "test.routing.key",
 	}
 
 	err := processorInstance.ProcessClient(ctx, req)
@@ -176,7 +172,6 @@ func TestClientDataProcessor_ProcessClient_ContextCancellation(t *testing.T) {
 
 	req := &clientpb.NewClientRequest{
 		ClientId:   "test-client-123",
-		RoutingKey: "test.routing.key",
 	}
 
 	err := processorInstance.ProcessClient(ctx, req)
@@ -225,7 +220,6 @@ func TestClientDataProcessor_ProcessClient_MessageSerialization(t *testing.T) {
 
 	req := &clientpb.NewClientRequest{
 		ClientId:   "test-client-123",
-		RoutingKey: "test.routing.key",
 	}
 
 	err := processorInstance.ProcessClient(ctx, req)
