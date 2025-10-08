@@ -7,8 +7,9 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
-	"github.com/mlops-eval/data-dispatcher-service/src/processor"
+	"github.com/mlops-eval/data-dispatcher-service/src/config"
 	"github.com/mlops-eval/data-dispatcher-service/src/grpc"
+	"github.com/mlops-eval/data-dispatcher-service/src/processor"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,7 +22,7 @@ func main() {
 	// Setup logging
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
-	
+
 	// Set log level from environment
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		if level, err := logrus.ParseLevel(logLevel); err == nil {
@@ -43,8 +44,13 @@ func main() {
 		"port":    port,
 	}).Info("Starting data dispatcher service")
 
-	// Create client processor
-	clientProcessor := processor.NewClientDataProcessor()
+	globalConfig := config.InitializeConfig()
+
+	clientProcessor, cleanup, err := processor.NewClientDataProcessorFromConfig(globalConfig, logger)
+	if err != nil {
+		logger.WithError(err).Fatal("Failed to create client processor")
+	}
+	defer cleanup()
 
 	// Create gRPC server
 	grpcServer := grpc.NewDataDispatcherServer(clientProcessor)
