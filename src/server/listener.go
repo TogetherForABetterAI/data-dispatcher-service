@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mlops-eval/data-dispatcher-service/src/config"
+
 	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
 	"github.com/mlops-eval/data-dispatcher-service/src/models"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -17,6 +19,7 @@ type Listener struct {
 	clientManager *ClientManager
 	middleware    *middleware.Middleware
 	logger        *logrus.Logger
+	queueName     string
 }
 
 // NewListener creates a new listener with the provided client manager and logger
@@ -25,17 +28,18 @@ func NewListener(clientManager *ClientManager, middleware *middleware.Middleware
 		clientManager: clientManager,
 		middleware:    middleware,
 		logger:        logger,
+		queueName:     config.CONNECTION_QUEUE_NAME,
 	}
 }
 
 // StartConsuming starts consuming messages from the specified queue
-func (l *Listener) Start(queueName string, shutdown chan struct{}, clientWg *sync.WaitGroup) error {
-	l.logger.WithField("queue", queueName).Info("Started consuming client notifications")
+func (l *Listener) Start(shutdown chan struct{}, clientWg *sync.WaitGroup) error {
+	l.logger.WithField("queue", l.queueName).Info("Started consuming client notifications")
 
 	// Start consuming messages using middleware's BasicConsume
-	err := l.middleware.BasicConsume(queueName, func(msg amqp.Delivery) {
+	err := l.middleware.BasicConsume(l.queueName, func(msg amqp.Delivery) {
 		// Spawn goroutine to handle each message
-		go l.HandleMessage(msg, shutdown, clientWg)
+		l.HandleMessage(msg, shutdown, clientWg)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start consuming: %w", err)
@@ -50,11 +54,6 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 	clientWg.Add(1)
 	defer clientWg.Done()
 
-	l.logger.WithFields(logrus.Fields{
-		"message_id": msg.MessageId,
-		"timestamp":  msg.Timestamp,
-	}).Debug("Received client notification message")
-
 	// Parse the notification
 	var notification models.ConnectNotification
 	if err := json.Unmarshal(msg.Body, &notification); err != nil {
@@ -62,7 +61,7 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 			"error": err.Error(),
 			"body":  string(msg.Body),
 		}).Error("Failed to unmarshal client notification")
-		msg.Nack(false, false) // Don't requeue invalid messages
+		msg.Ack(false) // Don't requeue invalid messages
 		return
 	}
 
@@ -71,7 +70,7 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 		l.logger.WithFields(logrus.Fields{
 			"notification": notification,
 		}).Error("Client notification missing client_id")
-		msg.Nack(false, false) // Don't requeue invalid messages
+		msg.Ack(false) // Don't requeue invalid messages
 		return
 	}
 
@@ -89,8 +88,8 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 	// Listen for shutdown signal
 	go func() {
 		select {
-		case <-shutdown:
-			cancel()
+		case <-shutdown: // Global shutdown signal
+			cancel() // Cancel client context on shutdown
 		case <-clientCtx.Done():
 		}
 	}()
