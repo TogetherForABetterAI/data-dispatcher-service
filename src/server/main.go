@@ -25,19 +25,19 @@ func NewServer(cfg config.GlobalConfig) (*Server, error) {
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
 	// Use middleware to establish RabbitMQ connection
-	middlewareInstance, err := middleware.NewMiddleware(cfg.GetMiddlewareConfig())
+	middleware, err := middleware.NewMiddleware(cfg.GetMiddlewareConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create middleware: %w", err)
 	}
 
-	// Create client manager
-	clientManager := NewClientManager(cfg)
+	// Create client manager with shared connection
+	clientManager := NewClientManager(cfg, middleware.Conn(), middleware)
 
-	// Create listener
-	listener := NewListener(clientManager, middlewareInstance, logger)
+	// Create listener (queueName is now set in constructor)
+	listener := NewListener(clientManager, middleware, logger)
 
 	server := &Server{
-		middleware: middlewareInstance,
+		middleware: middleware,
 		logger:     logger,
 		listener:   listener,
 		shutdown:   make(chan struct{}),
@@ -55,12 +55,9 @@ func NewServer(cfg config.GlobalConfig) (*Server, error) {
 
 // Start starts consuming client notification messages from the existing queue
 func (s *Server) Start() error {
-	// Queue name is fixed - no need to create or bind it
-	queueName := config.CONNECTION_QUEUE_NAME
-
 	// Start the listener to consume messages and spawn goroutines
 	// for each connection packet received
-	err := s.listener.Start(queueName, s.shutdown, &s.clientWg)
+	err := s.listener.Start(s.shutdown, &s.clientWg)
 	if err != nil {
 		return fmt.Errorf("failed to start consuming: %w", err)
 	}
@@ -71,15 +68,16 @@ func (s *Server) Start() error {
 // Stop gracefully stops the server and waits for all client goroutines to finish
 func (s *Server) Stop() {
 	s.logger.Info("Initiating graceful server shutdown")
-
+	
+	// Close middleware (RabbitMQ connection and channel)
+	s.middleware.Close()
+	
 	// Signal all client goroutines to stop
 	close(s.shutdown)
 
 	// Wait for all client goroutines to finish
 	s.clientWg.Wait()
 
-	// Close middleware (RabbitMQ connection and channel)
-	s.middleware.Close()
 
 	s.logger.Info("Server shutdown completed")
 }
