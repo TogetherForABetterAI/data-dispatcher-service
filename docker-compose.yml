@@ -5,6 +5,7 @@ services:
     env_file: .env
     volumes:
       - ./src/pb:/app/src/pb
+      - ./.env:/app/.env
     networks:
       - tpp-network
 
