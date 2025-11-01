@@ -13,12 +13,22 @@ const (
 	CONNECTION_QUEUE_NAME = "data_dispatcher_connections_queue"
 )
 
+type Interface interface {
+	GetLogLevel() string
+	GetServiceName() string
+	GetConsumerTag() string
+	GetMiddlewareConfig() *MiddlewareConfig
+	GetGrpcConfig() *GrpcConfig
+	GetWorkerPoolSize() int
+}
+
 type GlobalConfig struct {
 	logLevel         string
 	serviceName      string
-	containerName    string
+	consumerTag      string
 	middlewareConfig *MiddlewareConfig
 	grpcConfig       *GrpcConfig
+	workerPoolSize   int
 }
 
 type GrpcConfig struct {
@@ -78,6 +88,11 @@ func NewConfig() (GlobalConfig, error) {
 		return GlobalConfig{}, fmt.Errorf("DATASET_SERVICE_ADDR environment variable is required")
 	}
 
+	consumerTag := os.Getenv("CONSUMER_TAG")
+	if datasetAddr == "" {
+		return GlobalConfig{}, fmt.Errorf("DATASET_SERVICE_ADDR environment variable is required")
+	}
+
 	// Get batch size from environment
 	batchSizeStr := os.Getenv("BATCH_SIZE")
 	if batchSizeStr == "" {
@@ -98,16 +113,21 @@ func NewConfig() (GlobalConfig, error) {
 		maxRetries = parsed
 	}
 
-	// Get container name from hostname (automatic detection)
-	containerName, err := os.Hostname()
-	if err != nil {
-		return GlobalConfig{}, fmt.Errorf("failed to get container hostname: %w", err)
+	// Get worker pool size from environment (optional with default)
+	workerPoolSize := 10
+	if poolSizeStr := os.Getenv("WORKER_POOL_SIZE"); poolSizeStr != "" {
+		parsed, err := strconv.Atoi(poolSizeStr)
+		if err != nil {
+			return GlobalConfig{}, fmt.Errorf("WORKER_POOL_SIZE must be a valid integer: %w", err)
+		}
+		workerPoolSize = parsed
 	}
 
 	return GlobalConfig{
-		logLevel:      logLevel,
-		serviceName:   "data-dispatcher-service",
-		containerName: containerName,
+		logLevel:       logLevel,
+		serviceName:    "data-dispatcher-service",
+		consumerTag:    consumerTag,
+		workerPoolSize: workerPoolSize,
 		middlewareConfig: &MiddlewareConfig{
 			host:       rabbitHost,
 			port:       int32(rabbitPort),
@@ -122,7 +142,6 @@ func NewConfig() (GlobalConfig, error) {
 	}, nil
 }
 
-
 // GlobalConfig getters
 func (c GlobalConfig) GetLogLevel() string {
 	return c.logLevel
@@ -132,8 +151,8 @@ func (c GlobalConfig) GetServiceName() string {
 	return c.serviceName
 }
 
-func (c GlobalConfig) GetContainerName() string {
-	return c.containerName
+func (c GlobalConfig) GetConsumerTag() string {
+	return c.consumerTag
 }
 
 func (c GlobalConfig) GetMiddlewareConfig() *MiddlewareConfig {
@@ -142,6 +161,10 @@ func (c GlobalConfig) GetMiddlewareConfig() *MiddlewareConfig {
 
 func (c GlobalConfig) GetGrpcConfig() *GrpcConfig {
 	return c.grpcConfig
+}
+
+func (c GlobalConfig) GetWorkerPoolSize() int {
+	return c.workerPoolSize
 }
 
 // MiddlewareConfig getters
