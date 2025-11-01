@@ -20,40 +20,100 @@ type Listener struct {
 	middleware    *middleware.Middleware
 	logger        *logrus.Logger
 	queueName     string
+	jobs          chan amqp.Delivery // Channel for worker pool
+	wg            sync.WaitGroup
+	consumerTag   string
+	config        config.Interface
+	// Context and cancellation for graceful shutdown
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewListener creates a new listener with the provided client manager and logger
-func NewListener(clientManager *ClientManager, middleware *middleware.Middleware, logger *logrus.Logger) *Listener {
+func NewListener(clientManager *ClientManager, middleware *middleware.Middleware, cfg config.Interface) *Listener {
+
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+
+	// This channel will buffer jobs for the workers
+	// Its size = pool size, matching the prefetch count.
+	jobs := make(chan amqp.Delivery, cfg.GetWorkerPoolSize())
+
+	// Create an internal context for managing the listener's lifecycle
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Listener{
 		clientManager: clientManager,
 		middleware:    middleware,
 		logger:        logger,
 		queueName:     config.CONNECTION_QUEUE_NAME,
+		jobs:          jobs,
+		config:        cfg,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
-// StartConsuming starts consuming messages from the specified queue
-func (l *Listener) Start(shutdown chan struct{}, clientWg *sync.WaitGroup) error {
-	l.logger.WithField("queue", l.queueName).Info("Started consuming client notifications")
+// Start starts the listener and the worker pool
+func (l *Listener) Start() error {
 
-	// Start consuming messages using middleware's BasicConsume
-	err := l.middleware.BasicConsume(l.queueName, func(msg amqp.Delivery) {
-		// Spawn goroutine to handle each message
-		l.HandleMessage(msg, shutdown, clientWg)
-	})
+	// Set Prefetch Count (QoS)
+	// We can't receive more than WorkerPoolSize unacknowledged messages
+	poolSize := l.config.GetWorkerPoolSize()
+	if err := l.middleware.SetQoS(poolSize); err != nil {
+		return fmt.Errorf("failed to set QoS: %w", err)
+	}
+
+	// Get messages channel
+	msgs, err := l.middleware.BasicConsume(l.queueName, l.config.GetConsumerTag())
 	if err != nil {
-		return fmt.Errorf("failed to start consuming: %w", err)
+		return fmt.Errorf("failed to start consuming messages: %w", err)
 	}
 
-	return nil
+	for i := range poolSize {
+		l.wg.Add(1)
+		go l.worker(i)
+	}
+
+	for {
+		select {
+		case msg, ok := <-msgs:
+			if !ok {
+				l.logger.Warn("Message channel closed (likely due to connection loss)")
+				// Connection is lost, so no more messages will come
+				close(l.jobs)
+				return nil
+			}
+			// send the job to the worker pool.
+			// this will block if the jobs channel buffer is full
+			l.jobs <- msg
+
+		case <-l.ctx.Done():
+			l.logger.Info("Listener received shutdown signal. Stopping message consumption.")
+			// Graceful shutdown requested.
+			// Close the jobs channel to signal workers to finish.
+			close(l.jobs)
+			l.logger.Info("Jobs channel closed. Workers will finish processing remaining jobs.")
+			return nil
+		}
+	}
 }
 
-// HandleMessage processes individual client notification messages
-func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clientWg *sync.WaitGroup) {
-	// Add to wait group since this function runs in a goroutine
-	clientWg.Add(1)
-	defer clientWg.Done()
+// worker is a long-lived goroutine that processes jobs
+func (l *Listener) worker(id int) {
+	defer l.wg.Done()
 
+	// read from the jobs channel.
+	// this loop will automatically exit when the 'jobs' channel is closed and EMPTY.
+	for msg := range l.jobs {
+		l.processMessage(msg)
+	}
+
+	l.logger.WithField("worker_id", id).Info("Worker shutting down.")
+}
+
+// processMessage processes individual client notification messages
+func (l *Listener) processMessage(msg amqp.Delivery) {
 	// Parse the notification
 	var notification models.ConnectNotification
 	if err := json.Unmarshal(msg.Body, &notification); err != nil {
@@ -61,7 +121,7 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 			"error": err.Error(),
 			"body":  string(msg.Body),
 		}).Error("Failed to unmarshal client notification")
-		msg.Ack(false) // Don't requeue invalid messages
+		msg.Nack(false, false) // Don't requeue invalid messages
 		return
 	}
 
@@ -70,7 +130,7 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 		l.logger.WithFields(logrus.Fields{
 			"notification": notification,
 		}).Error("Client notification missing client_id")
-		msg.Ack(false) // Don't requeue invalid messages
+		msg.Nack(false, false) // Don't requeue invalid messages
 		return
 	}
 
@@ -81,20 +141,9 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 		"model_type":     notification.ModelType,
 	}).Info("Processing new client notification")
 
-	// Create a context that can be cancelled on shutdown
-	clientCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Listen for shutdown signal
-	go func() {
-		select {
-		case <-shutdown: // Global shutdown signal
-			cancel() // Cancel client context on shutdown
-		case <-clientCtx.Done():
-		}
-	}()
-
-	if err := l.clientManager.HandleClient(clientCtx, &notification); err != nil {
+	// We pass the main listener context. If shutdown is triggered,
+	// HandleClient should ideally respect this context and stop early.
+	if err := l.clientManager.HandleClient(l.ctx, &notification); err != nil {
 		l.logger.WithFields(logrus.Fields{
 			"client_id": notification.ClientId,
 			"error":     err.Error(),
@@ -106,4 +155,18 @@ func (l *Listener) HandleMessage(msg amqp.Delivery, shutdown chan struct{}, clie
 		}).Info("Successfully completed client processing")
 		msg.Ack(false) // Acknowledge successful processing
 	}
+}
+
+// Stop initiates a graceful shutdown
+func (l *Listener) Stop() {
+	l.logger.Info("Listener stopping - signaling message consumption to stop.")
+
+	l.cancel()
+
+	l.wg.Wait()
+	l.logger.Info("Listener stopped successfully. All workers finished.")
+}
+
+func (l *Listener) GetConsumerTag() string {
+	return l.consumerTag
 }
