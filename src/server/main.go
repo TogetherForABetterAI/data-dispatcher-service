@@ -2,8 +2,7 @@ package server
 
 import (
 	"fmt"
-	"sync" // Import sync
-
+	"sync" 
 	"github.com/mlops-eval/data-dispatcher-service/src/config"
 	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
 	"github.com/sirupsen/logrus"
@@ -61,7 +60,7 @@ func (s *Server) ShutdownRequestChannel() <-chan struct{} {
 	return s.shutdownRequest
 }
 
-// Start (No changes)
+// main function
 func (s *Server) Start() error {
 	s.monitor.Start()
 	err := s.listener.Start()
@@ -75,9 +74,9 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// "Do" ensures this method is only executed once
+// Stop gracefully shuts down the server
 func (s *Server) Stop() {
-	s.shutdownOnce.Do(func() {
+	s.shutdownOnce.Do(func() { // "Do" ensures this method is only executed once
 		s.logger.Info("Initiating graceful server shutdown...")
 		s.middleware.StopConsuming(s.listener.GetConsumerTag())
 		s.monitor.Stop()
