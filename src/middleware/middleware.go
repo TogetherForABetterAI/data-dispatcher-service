@@ -5,7 +5,6 @@ import (
 	"github.com/mlops-eval/data-dispatcher-service/src/config"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
-	"log"
 )
 
 type Middleware struct {
@@ -138,12 +137,17 @@ func (m *Middleware) BasicConsume(queueName string, consumerTag string) (<-chan 
 }
 
 func (m *Middleware) Close() {
-	if err := m.channel.Close(); err != nil {
-		log.Printf("action: rabbitmq_channel_close | result: fail | error: %v", err)
+	if m.channel != nil {
+		if err := m.channel.Close(); err != nil && !m.conn.IsClosed() {
+			m.logger.WithError(err).Warn("Failed to close RabbitMQ channel")
+		}
 	}
-	if err := m.conn.Close(); err != nil {
-		log.Printf("action: rabbitmq_connection_close | result: fail | error: %v", err)
+	if m.conn != nil && !m.conn.IsClosed() {
+		if err := m.conn.Close(); err != nil {
+			m.logger.WithError(err).Warn("Failed to close RabbitMQ connection")
+		}
 	}
+	m.logger.Info("RabbitMQ connection closed")
 }
 
 // Conn returns the underlying connection for reuse
