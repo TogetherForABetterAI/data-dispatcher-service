@@ -103,7 +103,24 @@ func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error
 	)
 }
 
-func (m *Middleware) BasicConsume(queueName string, callback func(amqp.Delivery)) error {
+// StopConsuming cancels all consumers to stop receiving new messages
+func (m *Middleware) StopConsuming(consumerTag string) error {
+	if m.channel != nil {
+		m.channel.Cancel(consumerTag, false)
+	}
+	return nil
+}
+
+// SetQoS configures the prefetch count for the channel
+func (mw *Middleware) SetQoS(prefetchCount int) error {
+	return mw.channel.Qos(
+		prefetchCount, // prefetch count - number of messages without ack
+		0,             // prefetch size - 0 means no limit on message size
+		false,
+	)
+}
+
+func (m *Middleware) BasicConsume(queueName string, consumerTag string) (<-chan amqp.Delivery, error) {
 	msgs, err := m.channel.Consume(
 		queueName,
 		"",    // consumer
@@ -114,24 +131,10 @@ func (m *Middleware) BasicConsume(queueName string, callback func(amqp.Delivery)
 		nil,   // args
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	go func() {
-		for msg := range msgs {
-			go func(m amqp.Delivery) {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("panic in middleware callback: %v", r)
-						_ = m.Nack(false, true)
-					}
-				}()
-				callback(m)
-			}(msg)
-		}
-	}()
-
-	return nil
+	return msgs, nil
 }
 
 func (m *Middleware) Close() {
