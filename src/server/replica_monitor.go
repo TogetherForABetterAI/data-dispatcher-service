@@ -5,45 +5,46 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mlops-eval/data-dispatcher-service/src/config"
+	"github.com/data-dispatcher-service/src/config"
 	"github.com/sirupsen/logrus"
 )
 
-// ShutdownRequester defines the interface for requesting a shutdown (instead of executing it).
-type ShutdownRequester interface {
-	RequestShutdown()
-}
+
 
 type ReplicaMonitor struct {
-	logger          *logrus.Logger
-	config          config.Interface
-	shutdownChan    chan<- struct{} // Channel to SEND the shutdown request
-	stateMutex      sync.Mutex
-	activeWorkers   int
-	minThreshold    int
-	minThresholdMet bool
-	isLeader        bool
-	wg              sync.WaitGroup
-	startupTimer    *time.Timer
-	ctx             context.Context
-	cancel          context.CancelFunc
+	logger              *logrus.Logger
+	config              config.Interface
+	orchestrator        Orchestrator
+	stateMutex          sync.Mutex
+	activeWorkers       int
+	minThreshold        int
+	minThresholdMet     bool
+	maxThreshold        int
+	maxThresholdReached bool
+	isLeader            bool
+	wg                  sync.WaitGroup
+	startupTimer        *time.Timer
+	ctx                 context.Context
+	cancel              context.CancelFunc
 }
 
 // NewReplicaMonitor creates a new instance of ReplicaMonitor.
-func NewReplicaMonitor(cfg config.Interface, logger *logrus.Logger, shutdownReqChan chan<- struct{}) *ReplicaMonitor {
+func NewReplicaMonitor(cfg config.Interface, logger *logrus.Logger, orchestrator Orchestrator) *ReplicaMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ReplicaMonitor{
-		logger:          logger,
-		config:          cfg,
-		shutdownChan:    shutdownReqChan, // Assign the channel
-		activeWorkers:   0,
-		minThreshold:    cfg.GetMinThreshold(),
-		minThresholdMet: false,
-		isLeader:        cfg.IsLeader(),
-		ctx:             ctx,
-		cancel:          cancel,
-		wg:              sync.WaitGroup{},
+		logger:              logger,
+		config:              cfg,
+		orchestrator:        orchestrator,
+		activeWorkers:       0,
+		minThreshold:        cfg.GetMinThreshold(),
+		minThresholdMet:     false,
+		maxThreshold:        cfg.GetWorkerPoolSize(),
+		maxThresholdReached: false,
+		isLeader:            cfg.IsLeader(),
+		ctx:                 ctx,
+		cancel:              cancel,
+		wg:                  sync.WaitGroup{},
 	}
 }
 
@@ -73,7 +74,7 @@ func (m *ReplicaMonitor) Start() {
 				// Threshold not met in time
 				m.logger.WithField("timeout", timeoutDuration).Warn("Replica Monitor: Startup timer EXPIRED. Requesting shutdown.")
 				// Request shutdown
-				go m.requestShutdown()
+				go m.orchestrator.RequestShutdown()
 			} else {
 				m.logger.Debug("Replica Monitor: Timer fired, but threshold already met.")
 			}
@@ -114,6 +115,19 @@ func (m *ReplicaMonitor) NotifyWorkerStart() {
 			}
 		}
 	}
+
+	if !m.isLeader && !m.maxThresholdReached && m.activeWorkers == m.maxThreshold {
+		m.logger.WithFields(logrus.Fields{
+			"active_workers": m.activeWorkers,
+			"threshold":      m.maxThreshold,
+		}).Warn("Replica Monitor: MAX threshold REACHED. Requesting scale-up.")
+
+		// set flag to avoid multiple scale-up requests
+		m.maxThresholdReached = true
+
+		// Request scale-up
+		go m.orchestrator.RequestScaleUp()
+	}
 }
 
 // NotifyWorkerFinish is called when a worker finishes a task.
@@ -130,17 +144,21 @@ func (m *ReplicaMonitor) NotifyWorkerFinish() {
 			"threshold":      m.minThreshold,
 		}).Warn("Replica Monitor: Active workers FELL BELOW threshold. Requesting shutdown.")
 
-		// Request shutdown 
-		go m.requestShutdown()
+		// Request shutdown
+		go m.orchestrator.RequestShutdown()
 	}
-}
 
-// requestShutdown sends a signal to the shutdown channel in a non-blocking way.
-func (m *ReplicaMonitor) requestShutdown() {
-	select {
-	case m.shutdownChan <- struct{}{}:
-		m.logger.Info("Replica Monitor: Shutdown request sent.")
-	default:
+	// if we had requested scale-up before, but load has dropped
+	// we reset the flag to allow future scale-up requests
+	// but we use a 90% threshold to avoid rapid toggling
+	// e.g if max was 10, we reset when load drops to 7 capacity
+	resetThreshold := int(float64(m.maxThreshold) * config.RESET_CAPACITY)
+	if m.maxThresholdReached && m.activeWorkers <= resetThreshold {
+		m.logger.WithFields(logrus.Fields{
+			"active_workers": m.activeWorkers,
+			"reset_at":       resetThreshold,
+		}).Info("Replica Monitor: Load dropped below 90%. Re-enabling max threshold trigger.")
+		m.maxThresholdReached = false
 	}
 }
 

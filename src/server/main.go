@@ -1,12 +1,20 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
-	"sync" 
-	"github.com/mlops-eval/data-dispatcher-service/src/config"
-	"github.com/mlops-eval/data-dispatcher-service/src/middleware"
+	"sync"
+
+	"github.com/data-dispatcher-service/src/config"
+	"github.com/data-dispatcher-service/src/middleware"
+	"github.com/data-dispatcher-service/src/models"
 	"github.com/sirupsen/logrus"
 )
+
+type Orchestrator interface {
+	RequestShutdown() <-chan struct{}
+	RequestScaleUp()
+}
 
 // Server handles RabbitMQ server operations
 type Server struct {
@@ -15,8 +23,9 @@ type Server struct {
 	listener        *Listener
 	monitor         *ReplicaMonitor
 	config          config.Interface
-	shutdownRequest chan struct{} // Channel to receive the shutdown request
-	shutdownOnce    sync.Once     // Ensures Stop() is called only once
+	shutdownRequest chan struct{}         // Channel to receive the shutdown request
+	shutdownOnce    sync.Once             // Ensures Stop() is called only once
+	scalePublisher  *middleware.Publisher // Publisher for scaling requests
 }
 
 // NewServer creates a new RabbitMQ server
@@ -24,25 +33,33 @@ func NewServer(cfg config.Interface) (*Server, error) {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-	middleware, err := middleware.NewMiddleware(cfg.GetMiddlewareConfig())
+	mw, err := middleware.NewMiddleware(cfg.GetMiddlewareConfig())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create middleware: %w", err)
 	}
 
-	clientManager := NewClientManager(cfg, middleware.Conn(), middleware)
+	clientManager := NewClientManager(cfg, mw.Conn(), mw)
 
 	shutdownReqChan := make(chan struct{}, 1)
 
+	publisher, err := middleware.NewPublisher(mw.Conn())
+
+	if err != nil {
+		mw.Close()
+		return nil, fmt.Errorf("failed to create scale publisher: %w", err)
+	}
+
 	server := &Server{
-		middleware:      middleware,
+		middleware:      mw,
 		logger:          logger,
 		config:          cfg,
 		shutdownRequest: shutdownReqChan,
+		scalePublisher:  publisher,
 	}
 
-	monitor := NewReplicaMonitor(cfg, logger, shutdownReqChan)
+	monitor := NewReplicaMonitor(cfg, logger, server)
 
-	listener := NewListener(clientManager, middleware, cfg, monitor)
+	listener := NewListener(clientManager, mw, cfg, monitor)
 
 	server.monitor = monitor
 	server.listener = listener
@@ -54,10 +71,6 @@ func NewServer(cfg config.Interface) (*Server, error) {
 	}).Info("Server initialized")
 
 	return server, nil
-}
-
-func (s *Server) ShutdownRequestChannel() <-chan struct{} {
-	return s.shutdownRequest
 }
 
 // main function
@@ -72,6 +85,30 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to start consuming: %w", err)
 	}
 	return nil
+}
+
+// RequestShutdown allows the ReplicaMonitor to request a server shutdown
+func (s *Server) RequestShutdown() <-chan struct{} {
+	return s.shutdownRequest
+}
+
+// RequestScaleUp allows the ReplicaMonitor to request scaling up a service type
+func (s *Server) RequestScaleUp() {
+
+	msg := models.ScaleMessage{ReplicaType: s.config.GetReplicaName()}
+	body, err := json.Marshal(msg)
+	if err != nil {
+		s.logger.WithField("error", err).Error("Failed to marshal scale-up message")
+		return
+	}
+	err = s.scalePublisher.Publish(
+		"",
+		body,
+		config.SCALABILITY_EXCHANGE,
+	)
+	if err != nil {
+		s.logger.WithField("error", err).Error("Failed to publish scale-up message")
+	}
 }
 
 // Stop gracefully shuts down the server
