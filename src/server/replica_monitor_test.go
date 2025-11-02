@@ -127,13 +127,16 @@ func TestReplicaMonitor_Start_AsLeader(t *testing.T) {
 		monitor := NewReplicaMonitor(cfg, logger, orch)
 		monitor.Start()
 
-		// Give some time to ensure the timer go routine can be started and fired
-		// but since it's a leader, it should not start
-		time.Sleep(20 * time.Millisecond)
+		// Use a channel-based timeout to verify no shutdown is called
+		// Wait longer than the startup timeout to ensure timer would have fired if started
+		select {
+		case <-orch.shutdownNotifyChan:
+			t.Fatal("unexpected shutdown call for leader")
+		case <-time.After(20 * time.Millisecond):
+			// Success: no shutdown was called
+		}
 
-		// its not necessary to stop a leader monitor,
-		// cause the timer goroutine never started.
-		// but we do it for symmetry
+		// Stop the monitor (for symmetry, though timer never started for leader)
 		monitor.Stop()
 
 		// Verify no shutdown was called
@@ -196,12 +199,13 @@ func TestReplicaMonitor_Start_ThresholdMetBeforeTimeout(t *testing.T) {
 		// Notify that a worker started (meets threshold)
 		monitor.NotifyWorkerStart()
 
-		// Wait enough time to ensure timer would have expired if not stopped
-		time.Sleep(250 * time.Millisecond)
-
-		// Verify no shutdown was called
-		if calls := orch.getShutdownCalls(); calls != 0 {
-			t.Fatalf("expected 0 shutdown calls, got %d", calls)
+		// Use channel-based wait instead of sleep to verify no shutdown is called
+		// Wait longer than the startup timeout to ensure timer would have expired if not stopped
+		select {
+		case <-orch.shutdownNotifyChan:
+			t.Fatal("unexpected shutdown call after meeting threshold")
+		case <-time.After(250 * time.Millisecond):
+			// Success: no shutdown was called
 		}
 
 		// Verify minThresholdMet is true
@@ -254,8 +258,13 @@ func TestReplicaMonitor_NotifyWorkerStart_TriggersScaleUpAtMaxThreshold(t *testi
 		// Additional worker starts should not trigger another scale-up
 		monitor.NotifyWorkerStart()
 
-		// Wait a bit to ensure no additional calls
-		time.Sleep(50 * time.Millisecond)
+		// Use channel-based wait to verify no additional scale-up calls
+		select {
+		case <-orch.scaleUpNotifyChan:
+			t.Fatal("unexpected second scale-up call")
+		case <-time.After(50 * time.Millisecond):
+			// Success: no additional scale-up
+		}
 
 		if calls := orch.getScaleUpCalls(); calls != 1 {
 			t.Fatalf("expected still 1 scale-up call after additional workers, got %d", calls)
@@ -282,12 +291,10 @@ func TestReplicaMonitor_NotifyWorkerFinish_TriggersShutdownBelowMinThreshold(t *
 			monitor.Stop()
 		})
 
-		// Simulate 1 active worker (below threshold of 2)
-		monitor.stateMutex.Lock()
-		monitor.activeWorkers = 1
-		monitor.stateMutex.Unlock()
+		// start one worker (1 < 2 threshold)
+		monitor.NotifyWorkerStart()
 
-		// Worker finishes, bringing count to 0 (below minThreshold)
+		// Worker finishes, bringing count to 0 (below minThreshold, 0 < 2)
 		monitor.NotifyWorkerFinish()
 
 		// Wait for shutdown to be called
@@ -345,7 +352,7 @@ func TestReplicaMonitor_NotifyWorkerFinish_ResetsMaxThresholdReached(t *testing.
 		}
 
 		// Verify maxThresholdReached is reset
-		monitor.stateMutex.Lock()
+		monitor.stateMutex.Lock() // not need to lock (cause is sequential in this case) but simulates real usage
 		reached := monitor.maxThresholdReached
 		workers := monitor.activeWorkers
 		monitor.stateMutex.Unlock()
@@ -390,7 +397,7 @@ func TestReplicaMonitor_Stop_CancelsContextAndWaitsForGoroutine(t *testing.T) {
 		monitor := NewReplicaMonitor(cfg, logger, orch)
 		monitor.Start()
 
-		// Give goroutine time to start
+		// Brief pause to allow goroutine to start
 		time.Sleep(10 * time.Millisecond)
 
 		// Stop should cancel context and wait for goroutine
