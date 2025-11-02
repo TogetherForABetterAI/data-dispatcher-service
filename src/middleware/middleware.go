@@ -2,7 +2,8 @@ package middleware
 
 import (
 	"fmt"
-	"github.com/mlops-eval/data-dispatcher-service/src/config"
+
+	"github.com/data-dispatcher-service/src/config"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
