@@ -63,7 +63,7 @@ func startServiceWithGracefulShutdown(srv *server.Server, config config.GlobalCo
 			"is_leader", config.IsLeader(),
 			"min_threshold", config.GetMinThreshold())
 		err := srv.Start()
-		serverDone <- err // Notify main when finished
+		serverDone <- err // Notify main routine when finished
 	}()
 
 	select {
