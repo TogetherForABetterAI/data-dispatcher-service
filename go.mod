@@ -1,4 +1,4 @@
-module github.com/mlops-eval/data-dispatcher-service
+module github.com/data-dispatcher-service
 
 go 1.23.0
 
