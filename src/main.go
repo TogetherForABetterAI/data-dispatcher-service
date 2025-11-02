@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mlops-eval/data-dispatcher-service/src/config"
-	"github.com/mlops-eval/data-dispatcher-service/src/server"
+	"github.com/data-dispatcher-service/src/config"
+	"github.com/data-dispatcher-service/src/server"
 )
 
 func main() {
@@ -79,7 +79,7 @@ func startServiceWithGracefulShutdown(srv *server.Server, config config.GlobalCo
 		srv.Stop()
 		<-serverDone
 		slog.Info("Service exited gracefully after receiving OS signal.")
-	case <-srv.ShutdownRequestChannel():
+	case <-srv.RequestShutdown():
 		slog.Info("Received internal scale-in request. Initiating graceful shutdown...")
 		srv.Stop()
 		<-serverDone
