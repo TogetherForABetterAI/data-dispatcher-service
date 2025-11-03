@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/data-dispatcher-service/src/config"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -26,6 +27,7 @@ type Middleware struct {
 	confirms_chan    chan amqp.Confirmation
 	logger           *logrus.Logger
 	MiddlewareConfig *config.MiddlewareConfig
+	mu               sync.Mutex
 }
 
 const MAX_RETRIES = 5
@@ -82,6 +84,9 @@ func NewMiddleware(cfg *config.MiddlewareConfig) (*Middleware, error) {
 }
 
 func (m *Middleware) DeclareQueue(queueName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	_, err := m.channel.QueueDeclare(
 		queueName, // name
 		false,     // durable
@@ -94,6 +99,9 @@ func (m *Middleware) DeclareQueue(queueName string) error {
 }
 
 func (m *Middleware) DeclareExchange(exchangeName string, exchangeType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	return m.channel.ExchangeDeclare(
 		exchangeName,
 		exchangeType,
@@ -106,6 +114,9 @@ func (m *Middleware) DeclareExchange(exchangeName string, exchangeType string) e
 }
 
 func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	return m.channel.QueueBind(
 		queueName,
 		routingKey,
@@ -117,6 +128,9 @@ func (m *Middleware) BindQueue(queueName, exchangeName, routingKey string) error
 
 // StopConsuming cancels all consumers to stop receiving new messages
 func (m *Middleware) StopConsuming(consumerTag string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.channel != nil {
 		if err := m.channel.Cancel(consumerTag, false); err != nil {
 			m.logger.WithError(err).Warnf("Failed to cancel consumer '%s'", consumerTag)
@@ -153,6 +167,9 @@ func (m *Middleware) BasicConsume(queueName string, consumerTag string) (<-chan 
 }
 
 func (m *Middleware) Close() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.channel != nil {
 		if err := m.channel.Close(); err != nil && !m.conn.IsClosed() {
 			m.logger.WithError(err).Warn("Failed to close RabbitMQ channel")
