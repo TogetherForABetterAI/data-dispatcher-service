@@ -87,7 +87,7 @@ func handleShutdown(srv *server.Server, serverDone chan error, osSignals chan os
 		srv.ShutdownClients(true)
 		<-serverDone
 		slog.Info("Service exited gracefully after receiving OS signal.")
-	case <-srv.RequestShutdown():
+	case <-srv.GetShutdownChan():
 		slog.Info("Received internal scale-in request. Initiating graceful shutdown...")
 		srv.ShutdownClients(false) // wait for clients to finish
 		<-serverDone

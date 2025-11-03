@@ -12,7 +12,7 @@ import (
 )
 
 type Orchestrator interface {
-	RequestShutdown() <-chan struct{}
+	RequestShutdown()
 	RequestScaleUp()
 }
 
@@ -88,7 +88,13 @@ func (s *Server) Start() error {
 }
 
 // RequestShutdown allows the ReplicaMonitor to request a server shutdown
-func (s *Server) RequestShutdown() <-chan struct{} {
+func (s *Server) RequestShutdown() {
+	s.shutdownOnce.Do(func() {
+		close(s.shutdownRequest)
+	})
+}
+
+func (s *Server) GetShutdownChan() chan struct{} {
 	return s.shutdownRequest
 }
 
