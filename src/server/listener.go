@@ -73,8 +73,8 @@ func (l *Listener) Start() error {
 		return fmt.Errorf("failed to set QoS: %w", err)
 	}
 
-	// Get messages channel
 	l.consumerTag = l.config.GetConsumerTag()
+	// Get messages channel
 	msgs, err := l.middleware.BasicConsume(l.queueName, l.consumerTag)
 	if err != nil {
 		return fmt.Errorf("failed to start consuming messages: %w", err)
@@ -115,13 +115,31 @@ func (l *Listener) worker(id int) {
 		l.logger.WithField("worker_id", id).Debug("Worker picked up a job")
 
 		l.monitor.NotifyWorkerStart()
-		l.processMessage(msg)
+		l.safeProcessMessage(msg)
 		l.monitor.NotifyWorkerFinish()
 
 		l.logger.WithField("worker_id", id).Debug("Worker finished a job")
 	}
 
 	l.logger.WithField("worker_id", id).Info("Worker shutting down.")
+}
+
+// safeProcessMessage wraps processMessage with panic recovery
+func (l *Listener) safeProcessMessage(msg amqp.Delivery) {
+	defer func() {
+		if r := recover(); r != nil {
+			l.logger.WithFields(logrus.Fields{
+				"panic_error": r,
+				"body":        string(msg.Body),
+			}).Error("Recovered from panic while processing message")
+
+			// Nack the message without requeuing to avoid infinite loops
+			msg.Nack(false, false)
+		}
+	}()
+
+	// if a panic occurs, it will be caught by the defer above
+	l.processMessage(msg)
 }
 
 // processMessage processes a single client notification message
@@ -169,12 +187,15 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 	}
 }
 
-// Stop initiates a graceful shutdown
-func (l *Listener) Stop() {
-	l.logger.Info("Listener stopping - signaling workers to stop.")
-	l.cancel()
+func (l *Listener) InterruptClients(interrupt bool) {
+	if interrupt {
+		l.logger.Info("Listener stopping - signaling workers to stop.")
+		l.cancel()
+	} else {
+		l.logger.Info("Waiting for all clients to finish processing...")
+	}
 	l.wg.Wait()
-	l.logger.Info("Listener stopped successfully. All workers finished.")
+	l.logger.Info("All clients have finished processing.")
 }
 
 func (l *Listener) GetConsumerTag() string {
