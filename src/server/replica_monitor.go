@@ -9,6 +9,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// ReplicaMonitorInterface defines the contract for replica monitoring operations
+type ReplicaMonitorInterface interface {
+	Start()
+	NotifyWorkerStart()
+	NotifyWorkerFinish()
+	Stop()
+}
+
 type ReplicaMonitor struct {
 	logger              *logrus.Logger
 	config              config.Interface
