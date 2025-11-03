@@ -18,14 +18,17 @@ import (
 
 // Listener handles listening for new client notifications and processing them
 type Listener struct {
-	clientManager *ClientManager
-	middleware    *middleware.Middleware
-	logger        *logrus.Logger
-	queueName     string
-	jobs          chan amqp.Delivery // Channel for worker pool
-	wg            sync.WaitGroup
-	consumerTag   string
-	config        config.Interface
+	middleware  *middleware.Middleware
+	logger      *logrus.Logger
+	queueName   string
+	jobs        chan amqp.Delivery // Channel for worker pool
+	wg          sync.WaitGroup
+	consumerTag string
+	config      config.Interface
+
+	clientsMutex  sync.RWMutex
+	activeClients map[string]*ClientManager
+
 	// Context and cancellation for graceful shutdown
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -34,7 +37,6 @@ type Listener struct {
 
 // NewListener creates a new listener with the provided client manager and logger
 func NewListener(
-	clientManager *ClientManager,
 	middleware *middleware.Middleware,
 	cfg config.Interface,
 	monitor *ReplicaMonitor,
@@ -51,15 +53,14 @@ func NewListener(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Listener{
-		clientManager: clientManager,
-		middleware:    middleware,
-		logger:        logger,
-		queueName:     config.CONNECTION_QUEUE_NAME,
-		jobs:          jobs,
-		config:        cfg,
-		ctx:           ctx,
-		cancel:        cancel,
-		monitor:       monitor,
+		middleware: middleware,
+		logger:     logger,
+		queueName:  config.CONNECTION_QUEUE_NAME,
+		jobs:       jobs,
+		config:     cfg,
+		ctx:        ctx,
+		cancel:     cancel,
+		monitor:    monitor,
 	}
 }
 
@@ -110,10 +111,8 @@ func (l *Listener) Start() error {
 func (l *Listener) worker(id int) {
 	defer l.wg.Done()
 	l.logger.WithField("worker_id", id).Info("Worker started")
-
 	for msg := range l.jobs {
 		l.logger.WithField("worker_id", id).Debug("Worker picked up a job")
-
 		l.monitor.NotifyWorkerStart()
 		l.safeProcessMessage(msg)
 		l.monitor.NotifyWorkerFinish()
@@ -171,9 +170,26 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 		"model_type":     notification.ModelType,
 	}).Info("Processing new client notification")
 
-	// We pass the main listener context. If shutdown is triggered,
-	// HandleClient should ideally respect this context and stop early.
-	if err := l.clientManager.HandleClient(&notification); err != nil {
+	clientID := notification.ClientId
+
+	clientManager := NewClientManager(l.config, l.middleware.Conn(), l.middleware)
+	l.clientsMutex.Lock()
+	l.activeClients[clientID] = clientManager
+	l.clientsMutex.Unlock()
+
+	// Ensure client session is removed
+	// regardless of processing outcome
+	defer func() {
+		l.clientsMutex.Lock()
+		delete(l.activeClients, clientID)
+		l.clientsMutex.Unlock()
+		l.logger.WithField("client_id", clientID).Info("Client processing finished and session removed.")
+	}()
+
+	if err := clientManager.HandleClient(&notification); err != nil {
+		if err == context.Canceled || err == context.DeadlineExceeded {
+			return
+		}
 		l.logger.WithFields(logrus.Fields{
 			"client_id": notification.ClientId,
 			"error":     err.Error(),
@@ -190,10 +206,12 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 func (l *Listener) InterruptClients(interrupt bool) {
 	l.cancel() // stop processing new messages
 	if interrupt {
+		l.clientsMutex.RLock()
 		l.logger.Info("Listener stopping - signaling workers to stop.")
-		if l.clientManager != nil {
-			l.clientManager.Stop() // interrupt ongoing processing
+		for _, clientManager := range l.activeClients {
+			clientManager.Stop() // interrupt ongoing processing
 		}
+		l.clientsMutex.RUnlock()
 	}
 	l.wg.Wait() // wait for workers to finish processing
 	l.logger.Info("All clients have finished processing.")
