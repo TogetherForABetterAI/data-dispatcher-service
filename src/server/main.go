@@ -111,14 +111,20 @@ func (s *Server) RequestScaleUp() {
 	}
 }
 
-// Stop gracefully shuts down the server
-func (s *Server) Stop() {
-	s.shutdownOnce.Do(func() { // "Do" ensures this method is only executed once
-		s.logger.Info("Initiating graceful server shutdown...")
+func (s *Server) ShutdownClients(interrupt bool) {
+	s.shutdownOnce.Do(func() {
+		s.logger.Info("Initiating server shutdown...")
 		s.middleware.StopConsuming(s.listener.GetConsumerTag())
 		s.monitor.Stop()
-		s.listener.Stop()
+		if interrupt {
+			// interrupts ongoing processing
+			s.listener.InterruptClients(true)
+		} else {
+			// If desired, a timeout could be added to set a limit
+			// on how long we wait for customers to finish.
+			s.listener.InterruptClients(false)
+		}
 		s.middleware.Close()
-		s.logger.Info("Server shutdown completed")
+		s.logger.Info("Server stopped consuming, all clients finished.")
 	})
 }
