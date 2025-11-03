@@ -8,6 +8,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// MiddlewareInterface defines the contract for middleware operations
+type MiddlewareInterface interface {
+	DeclareQueue(queueName string) error
+	DeclareExchange(exchangeName string, exchangeType string) error
+	BindQueue(queueName, exchangeName, routingKey string) error
+	StopConsuming(consumerTag string) error
+	SetQoS(prefetchCount int) error
+	BasicConsume(queueName string, consumerTag string) (<-chan amqp.Delivery, error)
+	Close()
+	Conn() *amqp.Connection
+}
+
 type Middleware struct {
 	conn             *amqp.Connection
 	channel          *amqp.Channel
