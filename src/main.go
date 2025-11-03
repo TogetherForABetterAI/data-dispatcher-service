@@ -11,20 +11,6 @@ import (
 	"github.com/data-dispatcher-service/src/server"
 )
 
-func main() {
-	config := loadConfig()
-	setupLogging(config)
-
-	srv, err := server.NewServer(config)
-	if err != nil {
-		slog.Error("Failed to initialize server", "error", err)
-		os.Exit(1)
-	}
-	startServiceWithGracefulShutdown(srv, config)
-
-	slog.Info("Service shutdown complete. Exiting.")
-}
-
 func loadConfig() config.GlobalConfig {
 	config, err := config.NewConfig()
 	if err != nil {
@@ -50,12 +36,30 @@ func setupLogging(config config.GlobalConfig) {
 	slog.SetDefault(logger)
 }
 
+func main() {
+	config := loadConfig()
+	setupLogging(config)
+
+	srv, err := server.NewServer(config)
+	if err != nil {
+		slog.Error("Failed to initialize server", "error", err)
+		os.Exit(1)
+	}
+	startServiceWithGracefulShutdown(srv, config)
+
+	slog.Info("Service shutdown complete. Exiting.")
+}
+
 // startServiceWithGracefulShutdown orchestrates the service lifecycle and handles graceful shutdown.
 func startServiceWithGracefulShutdown(srv *server.Server, config config.GlobalConfig) {
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, syscall.SIGINT, syscall.SIGTERM)
+	serverDone := startServer(srv, config)
+	handleShutdown(srv, serverDone, osSignals)
+}
 
-	// Channel for fatal server errors (crashes)
+// startServerAsync starts the server in a goroutine and returns a channel for server errors.
+func startServer(srv *server.Server, config config.GlobalConfig) chan error {
 	serverDone := make(chan error, 1)
 	go func() {
 		slog.Info("Starting service",
@@ -65,7 +69,11 @@ func startServiceWithGracefulShutdown(srv *server.Server, config config.GlobalCo
 		err := srv.Start()
 		serverDone <- err // Notify main routine when finished
 	}()
+	return serverDone
+}
 
+// handleShutdown waits for shutdown signals and orchestrates graceful shutdown.
+func handleShutdown(srv *server.Server, serverDone chan error, osSignals chan os.Signal) {
 	select {
 	case err := <-serverDone:
 		if err != nil {
