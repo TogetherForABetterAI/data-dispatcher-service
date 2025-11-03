@@ -89,7 +89,7 @@ func (h *ShutdownHandler) handleServerError(err error) error {
 	if err != nil {
 		slog.Error("Service stopped unexpectedly due to an error", "error", err)
 		h.ShutdownClients(true)
-		os.Exit(1)
+		return err
 	}
 	slog.Info("Service stopped without an error.")
 	return nil
@@ -100,7 +100,7 @@ func (h *ShutdownHandler) handleOSShutdown(serverDone chan error) error {
 	err := <-serverDone // wait for server to finish
 	if err != nil {
 		slog.Error("Service encountered an error during OS signal shutdown", "error", err)
-		os.Exit(1)
+		return err
 	}
 	slog.Info("Service exited gracefully after receiving OS signal.")
 	return nil
@@ -113,7 +113,7 @@ func (h *ShutdownHandler) handleInternalShutdown(serverDone chan error) error {
 	err := <-serverDone      // wait for server to finish
 	if err != nil {
 		slog.Error("Service encountered an error during internal shutdown", "error", err)
-		os.Exit(1)
+		return err
 	} 
 	slog.Info("Service exited gracefully after internal scale-in request.")
 	return nil
