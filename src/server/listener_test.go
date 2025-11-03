@@ -209,8 +209,12 @@ func TestStart(t *testing.T) {
 		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
 
 		msgChan := make(chan amqp.Delivery, 1)
+		listenerReady := make(chan struct{})
+
 		mockMiddleware.On("SetQoS", 2).Return(nil)
-		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Return((<-chan amqp.Delivery)(msgChan), nil)
+		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Run(func(args mock.Arguments) {
+			close(listenerReady) // Signal that listener is ready to consume
+		}).Return((<-chan amqp.Delivery)(msgChan), nil)
 
 		// Act
 		errChan := make(chan error, 1)
@@ -218,9 +222,13 @@ func TestStart(t *testing.T) {
 			errChan <- listener.Start()
 		}()
 
-		// Wait for workers to start using select with timeout
-		// we could add channels that confirm that workers have started to eliminate idle waiting.
-		time.Sleep(100 * time.Millisecond)
+		// Wait for listener to be ready
+		select {
+		case <-listenerReady:
+			// Listener is ready to consume messages
+		case <-time.After(1 * time.Second):
+			t.Fatal("Listener did not start consuming in time")
+		}
 
 		// Trigger shutdown
 		listener.InterruptClients(false)
@@ -256,11 +264,21 @@ func TestWorker(t *testing.T) {
 
 		// Set up expectations - message channel that we control
 		msgChan := make(chan amqp.Delivery, 1)
+		listenerReady := make(chan struct{})
+
 		mockMiddleware.On("SetQoS", 1).Return(nil)
-		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Return((<-chan amqp.Delivery)(msgChan), nil)
+		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Run(func(args mock.Arguments) {
+			close(listenerReady) // Signal that listener is ready to consume
+		}).Return((<-chan amqp.Delivery)(msgChan), nil)
+
 		mockMonitor.On("NotifyWorkerStart").Return().Once()
 		mockMonitor.On("NotifyWorkerFinish").Return().Once()
-		mockClientManager.On("HandleClient", mock.Anything).Return(nil).Once()
+
+		// Channel to signal when message processing completes
+		messageProcessed := make(chan struct{})
+		mockClientManager.On("HandleClient", mock.Anything).Run(func(args mock.Arguments) {
+			close(messageProcessed) // Signal that message was processed
+		}).Return(nil).Once()
 
 		// Create a valid message
 		validMsg := `{"client_id":"test-client-123","inputs_format":"csv","outputs_format":"json","model_type":"classification"}`
@@ -274,15 +292,24 @@ func TestWorker(t *testing.T) {
 			close(startDone)
 		}()
 
-		// Wait for workers to be ready using select with timeout
-		// we could add channels that confirm that workers have started to eliminate idle waiting.
-		time.Sleep(100 * time.Millisecond)
+		// Wait for listener to be ready
+		select {
+		case <-listenerReady:
+			// Listener is ready to consume messages
+		case <-time.After(1 * time.Second):
+			t.Fatal("Listener did not start consuming in time")
+		}
 
 		// Send message through the proper msgChan (not directly to jobs)
 		msgChan <- mockDelivery.ToDelivery()
 
-		// Wait for message to be processed using select with timeout
-		time.Sleep(200 * time.Millisecond)
+		// Wait for message to be processed
+		select {
+		case <-messageProcessed:
+			// Message was processed successfully
+		case <-time.After(1 * time.Second):
+			t.Fatal("Message was not processed in time")
+		}
 
 		// Close the msgChan to signal end of messages (like RabbitMQ disconnect)
 		close(msgChan)
