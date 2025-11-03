@@ -3,7 +3,11 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"github.com/data-dispatcher-service/src/config"
 	"github.com/data-dispatcher-service/src/middleware"
@@ -26,6 +30,7 @@ type Server struct {
 	shutdownRequest chan struct{}         // Channel to receive the shutdown request
 	shutdownOnce    sync.Once             // Ensures Stop() is called only once
 	scalePublisher  *middleware.Publisher // Publisher for scaling requests
+	shutdownHandler ShutdownHandlerInterface       // Handles graceful shutdown logic
 }
 
 // NewServer creates a new RabbitMQ server
@@ -66,6 +71,15 @@ func NewServer(cfg config.Interface) (*Server, error) {
 	server.monitor = monitor
 	server.listener = listener
 
+	// Initialize shutdown handler
+	server.shutdownHandler = NewShutdownHandler(
+		logger,
+		listener,
+		monitor,
+		mw,
+		shutdownReqChan,
+	)
+
 	logger.WithFields(logrus.Fields{
 		"host": cfg.GetMiddlewareConfig().GetHost(),
 		"port": cfg.GetMiddlewareConfig().GetPort(),
@@ -75,10 +89,33 @@ func NewServer(cfg config.Interface) (*Server, error) {
 	return server, nil
 }
 
+func (s *Server) Run() error {
+	osSignals := make(chan os.Signal, 1)
+	signal.Notify(osSignals, syscall.SIGINT, syscall.SIGTERM)
+
+	serverDone := s.startServerGoroutine()
+
+	return s.shutdownHandler.HandleShutdown(serverDone, osSignals)
+}
+
+func (s *Server) startServerGoroutine() chan error {
+	serverDone := make(chan error, 1)
+	go func() {
+		slog.Info("Starting service",
+			"service", s.config.GetConsumerTag(),
+			"is_leader", s.config.IsLeader(),
+			"min_threshold", s.config.GetMinThreshold())
+
+		err := s.startComponents()
+		serverDone <- err
+	}()
+	return serverDone
+}
+
 // main function
-func (s *Server) Start() error {
+func (s *Server) startComponents() error {
 	s.monitor.Start()
-	err := s.listener.Start()
+	err := s.listener.Start() // this is the main blocking call
 	if err != nil {
 		if err.Error() == "context canceled" {
 			s.logger.Info("Listener stopped consuming gracefully.")
@@ -94,10 +131,6 @@ func (s *Server) RequestShutdown() {
 	s.shutdownOnce.Do(func() {
 		close(s.shutdownRequest)
 	})
-}
-
-func (s *Server) GetShutdownChan() chan struct{} {
-	return s.shutdownRequest
 }
 
 // RequestScaleUp allows the ReplicaMonitor to request scaling up a service type
@@ -119,20 +152,4 @@ func (s *Server) RequestScaleUp() {
 	}
 }
 
-// ShutdownClients initiates the server shutdown
-func (s *Server) ShutdownClients(interrupt bool) {
-	s.logger.Info("Initiating server shutdown...")
-	s.middleware.StopConsuming(s.listener.GetConsumerTag())
-	s.monitor.Stop()
-	if interrupt {
-		// interrupts ongoing processing
-		s.listener.InterruptClients(true)
-	} else {
-		// If desired, a timeout could be added to set a limit
-		// on how long we wait for clients to finish.
-		s.listener.InterruptClients(false)
-	}
-	s.middleware.Close()
 
-	s.logger.Info("Server stopped consuming, all clients finished.")
-}
