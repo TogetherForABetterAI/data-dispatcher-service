@@ -29,7 +29,6 @@ type ReplicaMonitor struct {
 // NewReplicaMonitor creates a new instance of ReplicaMonitor.
 func NewReplicaMonitor(cfg config.Interface, logger *logrus.Logger, orchestrator Orchestrator) *ReplicaMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
-
 	return &ReplicaMonitor{
 		logger:              logger,
 		config:              cfg,
@@ -58,40 +57,50 @@ func (m *ReplicaMonitor) Start() {
 		"threshold": m.minThreshold,
 		"timeout":   timeoutDuration,
 	}).Info("Replica Monitor: Non-leader started. Activating startup timer.")
-
 	m.startupTimer = time.NewTimer(timeoutDuration)
+	m.startTimerGoroutine(timeoutDuration)
+}
 
+// startTimerGoroutine launches the goroutine that monitors the startup timer and context.
+func (m *ReplicaMonitor) startTimerGoroutine(timeoutDuration time.Duration) {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		select {
 		case <-m.startupTimer.C:
-			// Timer fired
-			m.stateMutex.Lock()
-			if !m.minThresholdMet {
-				// Threshold not met in time
-				m.logger.WithField("timeout", timeoutDuration).Warn("Replica Monitor: Startup timer EXPIRED. Requesting shutdown.")
-				// Request shutdown
-				go m.orchestrator.RequestShutdown()
-			} else {
-				m.logger.Debug("Replica Monitor: Timer fired, but threshold already met.")
-			}
-			m.stateMutex.Unlock()
-
+			m.handleStartupTimerExpired(timeoutDuration)
 		case <-m.ctx.Done():
-			// try to stop the timer cause shutdown is requested
-			if !m.startupTimer.Stop() {
-				// if Stop() returned false,
-				// means the timer has already fired
-				// or is in the process of firing
-				select {
-				case <-m.startupTimer.C: // drain the channel
-				default: // do nothing and continue
-				}
-			}
+			m.handleContextDone()
 			return
 		}
 	}()
+}
+
+// handleStartupTimerExpired handles the logic when the startup timer expires.
+func (m *ReplicaMonitor) handleStartupTimerExpired(timeoutDuration time.Duration) {
+	m.stateMutex.Lock()
+	defer m.stateMutex.Unlock()
+	if !m.minThresholdMet {
+		// Threshold not met in time
+		m.logger.WithField("timeout", timeoutDuration).Warn("Replica Monitor: Startup timer EXPIRED. Requesting shutdown.")
+		// Request shutdown
+		go m.orchestrator.RequestShutdown()
+	} else {
+		m.logger.Debug("Replica Monitor: Timer fired, but threshold already met.")
+	}
+}
+
+// handleContextDone handles cleanup when the context is cancelled.
+func (m *ReplicaMonitor) handleContextDone() {
+	// try to stop the timer cause shutdown is requested
+	if !m.startupTimer.Stop() {
+		// if Stop() returned false, means the timer has already fired
+		// or is in the process of firing
+		select {
+		case <-m.startupTimer.C: // drain the channel
+		default: // do nothing and continue
+		}
+	}
 }
 
 // NotifyWorkerStart is called when a worker starts a task.
