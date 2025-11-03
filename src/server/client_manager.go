@@ -95,5 +95,7 @@ func (c *ClientManager) createAndBindClientQueues(clientID string) error {
 
 func (c *ClientManager) Stop() {
 	c.logger.Info("Stopping ClientManager for client ", c.clientID)
-	c.batchHandler.Stop()
+	if c.batchHandler != nil {
+		c.batchHandler.Stop()
+	}
 }

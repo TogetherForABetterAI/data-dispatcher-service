@@ -191,9 +191,11 @@ func (l *Listener) InterruptClients(interrupt bool) {
 	l.cancel() // stop processing new messages
 	if interrupt {
 		l.logger.Info("Listener stopping - signaling workers to stop.")
-		l.clientManager.Stop() // interrupt ongoing processing
+		if l.clientManager != nil {
+			l.clientManager.Stop() // interrupt ongoing processing
+		}
 	}
-	l.wg.Wait() // wait for workers to finish processing 
+	l.wg.Wait() // wait for workers to finish processing
 	l.logger.Info("All clients have finished processing.")
 }
 
