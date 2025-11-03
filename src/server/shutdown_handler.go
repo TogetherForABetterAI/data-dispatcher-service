@@ -1,9 +1,11 @@
 package server
 
 import (
-	"github.com/sirupsen/logrus"
 	"log/slog"
 	"os"
+	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 // ShutdownHandlerInterface defines the interface for handling graceful shutdown
@@ -25,6 +27,7 @@ type ShutdownHandler struct {
 	monitor         ReplicaMonitorInterface
 	middleware      ShutdownMiddleware
 	shutdownRequest chan struct{}
+	wg              sync.WaitGroup
 }
 
 // ShutdownMiddleware defines the middleware methods needed for shutdown
@@ -60,7 +63,9 @@ func NewShutdownHandler(
 func (h *ShutdownHandler) HandleShutdown(serverDone chan error, osSignals chan os.Signal) error {
 
 	// Goroutine to handle OS signals
+	h.wg.Add(1)
 	go func() {
+		defer h.wg.Done()
 		sig, ok := <-osSignals
 		if !ok {
 			return
@@ -69,12 +74,14 @@ func (h *ShutdownHandler) HandleShutdown(serverDone chan error, osSignals chan o
 		h.ShutdownClients(true) // interrupt ongoing processing
 	}()
 
-	// Wait for one of three shutdown triggers
+	// wait for one of two shutdown triggers
 	select {
 	case err := <-serverDone:
+		close(osSignals) // notify OS signal goroutine to exit
+		h.wg.Wait() // wait for OS signal goroutine to finish
 		return h.handleServerError(err)
 	case <-h.shutdownRequest:
-		return h.handleInternalShutdown(serverDone)
+		return h.handleInternalShutdown(serverDone, osSignals)
 	}
 }
 
@@ -90,10 +97,12 @@ func (h *ShutdownHandler) handleServerError(err error) error {
 }
 
 // handleInternalShutdown handles shutdown triggered by internal scale-in request
-func (h *ShutdownHandler) handleInternalShutdown(serverDone chan error) error {
+func (h *ShutdownHandler) handleInternalShutdown(serverDone chan error, osSignals chan os.Signal) error {
 	slog.Info("Received internal scale-in request. Initiating graceful shutdown...")
-	h.ShutdownClients(false) // wait for clients to finish
+	h.ShutdownClients(false) // block here until clients finish
 	err := <-serverDone      // wait for server to finish
+	close(osSignals)         // this notifies the OS signal goroutine to exit
+	h.wg.Wait()              // wait for OS signal goroutine to finish
 	if err != nil {
 		slog.Error("Service encountered an error during internal shutdown", "error", err)
 		return err
