@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/data-dispatcher-service/src/config"
@@ -14,12 +13,14 @@ import (
 
 // ClientManager handles processing client data requests
 type ClientManager struct {
+	clientID           string
 	datasetServiceAddr string
 	logger             *logrus.Logger
 	maxRetries         int
 	batchSize          int32
 	conn               *amqp.Connection
 	middleware         *middleware.Middleware
+	batchHandler       *BatchHandler
 }
 
 // NewClientManager creates a new client manager
@@ -34,11 +35,12 @@ func NewClientManager(cfg config.Interface, conn *amqp.Connection, middleware *m
 		batchSize:          cfg.GetGrpcConfig().GetBatchSize(),
 		conn:               conn,
 		middleware:         middleware,
+		batchHandler:       nil,
 	}
 }
 
 // HandleClient processes a client notification by fetching and publishing dataset batches
-func (c *ClientManager) HandleClient(ctx context.Context, notification *models.ConnectNotification) error {
+func (c *ClientManager) HandleClient(notification *models.ConnectNotification) error {
 
 	// Create RabbitMQ publisher using shared connection
 	publisher, err := middleware.NewPublisher(c.conn)
@@ -46,6 +48,8 @@ func (c *ClientManager) HandleClient(ctx context.Context, notification *models.C
 		return fmt.Errorf("failed to create RabbitMQ publisher: %w", err)
 	}
 	defer publisher.Close()
+
+	c.clientID = notification.ClientId
 
 	// Create and bind queues for this client
 	if err := c.createAndBindClientQueues(notification.ClientId); err != nil {
@@ -59,8 +63,8 @@ func (c *ClientManager) HandleClient(ctx context.Context, notification *models.C
 	}
 
 	// Create and start batch handler
-	batchHandler := NewBatchHandler(publisher, grpcClient, notification.ModelType, c.batchSize, c.logger)
-	return batchHandler.Start(ctx, notification)
+	c.batchHandler = NewBatchHandler(publisher, grpcClient, notification.ModelType, c.batchSize, c.logger)
+	return c.batchHandler.Start(notification)
 }
 
 // createAndBindClientQueues creates and binds labeled and unlabeled queues for a client
@@ -87,4 +91,9 @@ func (c *ClientManager) createAndBindClientQueues(clientID string) error {
 	}
 
 	return nil
+}
+
+func (c *ClientManager) Stop() {
+	c.logger.Info("Stopping ClientManager for client ", c.clientID)
+	c.batchHandler.Stop()
 }

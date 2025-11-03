@@ -21,21 +21,27 @@ type BatchHandler struct {
 	logger     *logrus.Logger
 	modelType  string
 	batchSize  int32
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // NewBatchHandler creates a new batch handler with initialized dependencies
 func NewBatchHandler(publisher *middleware.Publisher, grpcClient *grpc.Client, modelType string, batchSize int32, logger *logrus.Logger) *BatchHandler {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &BatchHandler{
 		publisher:  publisher,
 		grpcClient: grpcClient,
 		logger:     logger,
 		modelType:  modelType,
 		batchSize:  batchSize,
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
 // Start initializes the batch handler and processes all batches for the client
-func (bh *BatchHandler) Start(ctx context.Context, notification *models.ConnectNotification) error {
+func (bh *BatchHandler) Start(notification *models.ConnectNotification) error {
 	bh.logger.WithFields(logrus.Fields{
 		"client_id":  notification.ClientId,
 		"model_type": notification.ModelType,
@@ -43,21 +49,23 @@ func (bh *BatchHandler) Start(ctx context.Context, notification *models.ConnectN
 	}).Info("Starting batch handler and processing client data")
 
 	// Process all batches for this client
-	return bh.processBatches(ctx, notification)
+	return bh.processBatches(notification)
 }
 
 // processBatches handles the main batch processing loop
-func (bh *BatchHandler) processBatches(ctx context.Context, notification *models.ConnectNotification) error {
+func (bh *BatchHandler) processBatches(notification *models.ConnectNotification) error {
 	batchIndex := int32(0)
 
 	for {
-
-		if ctx.Err() != nil {
-			return ctx.Err() // Context cancelled due to shutdown signal
+		select {
+		case <-bh.ctx.Done():
+			return bh.ctx.Err() // Context cancelled due to shutdown signal
+		default:
+			// Continue processing
 		}
 
 		// Fetch batch from dataset service using batch handler
-		batch, err := bh.FetchBatch(ctx, batchIndex)
+		batch, err := bh.FetchBatch(batchIndex)
 		if err != nil {
 			return fmt.Errorf("failed to fetch batch %d: %w", batchIndex, err)
 		}
@@ -88,7 +96,7 @@ func (bh *BatchHandler) processBatches(ctx context.Context, notification *models
 		batchIndex++
 
 		// Add small delay between batches to avoid overwhelming the services
-		if err := bh.waitBetweenBatches(ctx); err != nil {
+		if err := bh.waitBetweenBatches(); err != nil {
 			return err
 		}
 	}
@@ -97,18 +105,18 @@ func (bh *BatchHandler) processBatches(ctx context.Context, notification *models
 }
 
 // waitBetweenBatches adds a small delay between batch processing
-func (bh *BatchHandler) waitBetweenBatches(ctx context.Context) error {
+func (bh *BatchHandler) waitBetweenBatches() error {
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-bh.ctx.Done():
+		return bh.ctx.Err()
 	case <-time.After(100 * time.Millisecond):
 		return nil
 	}
 }
 
 // FetchBatch retrieves a single batch from the dataset service
-func (bh *BatchHandler) FetchBatch(ctx context.Context, batchIndex int32) (*datasetpb.DataBatchLabeled, error) {
-	batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+func (bh *BatchHandler) FetchBatch(batchIndex int32) (*datasetpb.DataBatchLabeled, error) {
+	batchCtx, cancel := context.WithTimeout(bh.ctx, 30*time.Second)
 	defer cancel()
 
 	batchReq := &datasetpb.GetBatchRequest{
@@ -194,4 +202,8 @@ func (bh *BatchHandler) publishBatches(clientID string, unlabeledBody, labeledBo
 	}
 
 	return nil
+}
+
+func (bh *BatchHandler) Stop() {
+	bh.cancel()
 }

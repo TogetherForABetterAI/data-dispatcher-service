@@ -99,7 +99,7 @@ func (l *Listener) Start() error {
 
 		case <-l.ctx.Done():
 			l.logger.Info("Listener received shutdown signal. Stopping message consumption.")
-			close(l.jobs)
+			close(l.jobs) // Close jobs channel to signal workers to stop once they finish current jobs
 			l.logger.Info("Jobs channel closed. Workers will finish processing remaining jobs.")
 			return l.ctx.Err() // Return context error
 		}
@@ -173,7 +173,7 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 
 	// We pass the main listener context. If shutdown is triggered,
 	// HandleClient should ideally respect this context and stop early.
-	if err := l.clientManager.HandleClient(l.ctx, &notification); err != nil {
+	if err := l.clientManager.HandleClient(&notification); err != nil {
 		l.logger.WithFields(logrus.Fields{
 			"client_id": notification.ClientId,
 			"error":     err.Error(),
@@ -188,13 +188,12 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 }
 
 func (l *Listener) InterruptClients(interrupt bool) {
+	l.cancel() // stop processing new messages
 	if interrupt {
 		l.logger.Info("Listener stopping - signaling workers to stop.")
-		l.cancel()
-	} else {
-		l.logger.Info("Waiting for all clients to finish processing...")
+		l.clientManager.Stop() // interrupt ongoing processing
 	}
-	l.wg.Wait()
+	l.wg.Wait() // wait for workers to finish processing 
 	l.logger.Info("All clients have finished processing.")
 }
 
