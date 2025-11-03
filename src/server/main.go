@@ -111,7 +111,9 @@ func (s *Server) RequestScaleUp() {
 	}
 }
 
+// ShutdownClients initiates the server shutdown
 func (s *Server) ShutdownClients(interrupt bool) {
+	// "s.shutdownOnce.Do" ensures ShutdownClients() is called only once
 	s.shutdownOnce.Do(func() {
 		s.logger.Info("Initiating server shutdown...")
 		s.middleware.StopConsuming(s.listener.GetConsumerTag())
@@ -121,7 +123,7 @@ func (s *Server) ShutdownClients(interrupt bool) {
 			s.listener.InterruptClients(true)
 		} else {
 			// If desired, a timeout could be added to set a limit
-			// on how long we wait for customers to finish.
+			// on how long we wait for clients to finish.
 			s.listener.InterruptClients(false)
 		}
 		s.middleware.Close()
