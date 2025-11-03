@@ -18,7 +18,7 @@ import (
 
 // Listener handles listening for new client notifications and processing them
 type Listener struct {
-	middleware  *middleware.Middleware
+	middleware  middleware.MiddlewareInterface
 	logger      *logrus.Logger
 	queueName   string
 	jobs        chan amqp.Delivery // Channel for worker pool
@@ -32,14 +32,14 @@ type Listener struct {
 	// Context and cancellation for graceful shutdown
 	ctx     context.Context
 	cancel  context.CancelFunc
-	monitor *ReplicaMonitor
+	monitor ReplicaMonitorInterface
 }
 
 // NewListener creates a new listener with the provided client manager and logger
 func NewListener(
-	middleware *middleware.Middleware,
+	middleware middleware.MiddlewareInterface,
 	cfg config.Interface,
-	monitor *ReplicaMonitor,
+	monitor ReplicaMonitorInterface,
 ) *Listener {
 
 	logger := logrus.New()
@@ -172,7 +172,16 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 
 	clientID := notification.ClientId
 
-	clientManager := NewClientManager(l.config, l.middleware.Conn(), l.middleware)
+	// Type assertion to get the concrete Middleware for ClientManager
+	// This is necessary because ClientManager needs the concrete type
+	concreteMiddleware, ok := l.middleware.(*middleware.Middleware)
+	if !ok {
+		l.logger.Error("Failed to type assert middleware to concrete type")
+		msg.Nack(false, false)
+		return
+	}
+
+	clientManager := NewClientManager(l.config, l.middleware.Conn(), concreteMiddleware)
 	l.clientsMutex.Lock()
 	l.activeClients[clientID] = clientManager
 	l.clientsMutex.Unlock()
