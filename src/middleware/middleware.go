@@ -11,6 +11,7 @@ import (
 
 // MiddlewareInterface defines the contract for middleware operations
 type MiddlewareInterface interface {
+	SetupTopology() error
 	DeclareQueue(queueName string) error
 	DeclareExchange(exchangeName string, exchangeType string) error
 	BindQueue(queueName, exchangeName, routingKey string) error
@@ -60,14 +61,6 @@ func NewMiddleware(cfg *config.MiddlewareConfig) (*Middleware, error) {
 		return nil, err
 	}
 
-	// Declare required exchanges here
-	mw := &Middleware{channel: ch}
-	if err := mw.DeclareExchange(config.DATASET_EXCHANGE, "direct"); err != nil {
-		ch.Close()
-		conn.Close()
-		return nil, fmt.Errorf("failed to declare exchange %s: %w", config.DATASET_EXCHANGE, err)
-	}
-
 	logger.WithFields(logrus.Fields{
 		"host": cfg.GetHost(),
 		"port": cfg.GetPort(),
@@ -83,13 +76,44 @@ func NewMiddleware(cfg *config.MiddlewareConfig) (*Middleware, error) {
 	}, nil
 }
 
+// SetupTopology configures the RabbitMQ topology (exchange, queue, and binding)
+func (m *Middleware) SetupTopology() error {
+	exchangeName := "dispatcher"
+	queueName := config.CONNECTION_QUEUE_NAME
+	routingKey := queueName
+
+	// Declare the exchange
+	if err := m.DeclareExchange(exchangeName, "direct"); err != nil {
+		return fmt.Errorf("failed to declare exchange '%s': %w", exchangeName, err)
+	}
+	m.logger.WithField("exchange", exchangeName).Info("Exchange declared successfully")
+
+	// Declare the queue as durable
+	if err := m.DeclareQueue(queueName); err != nil {
+		return fmt.Errorf("failed to declare queue '%s': %w", queueName, err)
+	}
+	m.logger.WithField("queue", queueName).Info("Queue declared successfully")
+
+	// Bind the queue to the exchange
+	if err := m.BindQueue(queueName, exchangeName, routingKey); err != nil {
+		return fmt.Errorf("failed to bind queue '%s' to exchange '%s': %w", queueName, exchangeName, err)
+	}
+	m.logger.WithFields(logrus.Fields{
+		"queue":       queueName,
+		"exchange":    exchangeName,
+		"routing_key": routingKey,
+	}).Info("Queue bound to exchange successfully")
+
+	return nil
+}
+
 func (m *Middleware) DeclareQueue(queueName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	_, err := m.channel.QueueDeclare(
 		queueName, // name
-		false,     // durable
+		true,      // durable - la cola sobrevive al reinicio de RabbitMQ
 		false,     // delete when unused
 		false,     // exclusive
 		false,     // no-wait
@@ -105,7 +129,7 @@ func (m *Middleware) DeclareExchange(exchangeName string, exchangeType string) e
 	return m.channel.ExchangeDeclare(
 		exchangeName,
 		exchangeType,
-		false, // durable
+		true,  // durable - el exchange sobrevive al reinicio de RabbitMQ
 		false, // autoDelete
 		false, // internal
 		false, // noWait

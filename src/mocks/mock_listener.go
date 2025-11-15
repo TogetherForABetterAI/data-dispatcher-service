@@ -14,6 +14,6 @@ func (m *MockListener) GetConsumerTag() string {
 	return args.String(0)
 }
 
-func (m *MockListener) InterruptClients(interrupt bool) {
-	m.Called(interrupt)
+func (m *MockListener) InterruptClients() {
+	m.Called()
 }

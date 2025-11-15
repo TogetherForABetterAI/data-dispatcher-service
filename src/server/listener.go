@@ -33,9 +33,8 @@ type Listener struct {
 	activeClients map[string]ClientManagerInterface
 
 	// Context and cancellation for graceful shutdown
-	ctx     context.Context
-	cancel  context.CancelFunc
-	monitor ReplicaMonitorInterface
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	clientManagerFactory ClientManagerFactory
 }
@@ -44,7 +43,6 @@ type Listener struct {
 func NewListener(
 	middleware middleware.MiddlewareInterface,
 	cfg config.Interface,
-	monitor ReplicaMonitorInterface,
 	factory ClientManagerFactory,
 ) *Listener {
 
@@ -66,9 +64,9 @@ func NewListener(
 		config:               cfg,
 		ctx:                  ctx,
 		cancel:               cancel,
-		monitor:              monitor,
 		activeClients:        make(map[string]ClientManagerInterface),
 		clientManagerFactory: factory,
+		consumerTag:          cfg.GetPodName(), // Use POD_NAME as consumer tag
 	}
 }
 
@@ -76,18 +74,27 @@ func NewListener(
 func (l *Listener) Start() error {
 	l.logger.WithField("queue", l.queueName).Info("Starting listener...")
 
+	// Setup RabbitMQ topology (exchange, queue, and binding)
+	if err := l.middleware.SetupTopology(); err != nil {
+		return fmt.Errorf("failed to setup RabbitMQ topology: %w", err)
+	}
+
 	// Set Prefetch Count (QoS)
 	poolSize := l.config.GetWorkerPoolSize()
 	if err := l.middleware.SetQoS(poolSize); err != nil {
 		return fmt.Errorf("failed to set QoS: %w", err)
 	}
 
-	l.consumerTag = l.config.GetConsumerTag()
-	// Get messages channel
+	// Get messages channel using POD_NAME as consumer tag
 	msgs, err := l.middleware.BasicConsume(l.queueName, l.consumerTag)
 	if err != nil {
 		return fmt.Errorf("failed to start consuming messages: %w", err)
 	}
+
+	l.logger.WithFields(logrus.Fields{
+		"consumer_tag": l.consumerTag,
+		"queue":        l.queueName,
+	}).Info("Consumer registered with unique tag")
 
 	for i := 0; i < poolSize; i++ {
 		l.wg.Add(1)
@@ -121,9 +128,7 @@ func (l *Listener) worker(id int) {
 	l.logger.WithField("worker_id", id).Info("Worker started")
 	for msg := range l.jobs {
 		l.logger.WithField("worker_id", id).Debug("Worker picked up a job")
-		l.monitor.NotifyWorkerStart()
 		l.safeProcessMessage(msg)
-		l.monitor.NotifyWorkerFinish()
 
 		l.logger.WithField("worker_id", id).Debug("Worker finished a job")
 	}
@@ -211,16 +216,16 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 	}
 }
 
-func (l *Listener) InterruptClients(interrupt bool) {
+func (l *Listener) InterruptClients() {
 	l.cancel() // stop processing new messages
-	if interrupt {
-		l.clientsMutex.RLock()
-		l.logger.Info("Listener stopping - signaling workers to stop.")
-		for _, clientManager := range l.activeClients {
-			clientManager.Stop() // interrupt ongoing processing
-		}
-		l.clientsMutex.RUnlock()
+
+	l.clientsMutex.RLock()
+	l.logger.Info("Listener stopping - signaling workers to stop.")
+	for _, clientManager := range l.activeClients {
+		clientManager.Stop() // interrupt ongoing processing
 	}
+	l.clientsMutex.RUnlock()
+
 	l.wg.Wait() // wait for workers to finish processing
 	l.logger.Info("All clients have finished processing.")
 }

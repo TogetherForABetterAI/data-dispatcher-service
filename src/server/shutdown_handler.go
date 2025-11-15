@@ -1,7 +1,6 @@
 package server
 
 import (
-	"log/slog"
 	"os"
 	"sync"
 
@@ -14,20 +13,16 @@ type ShutdownHandlerInterface interface {
 	// Returns an error if shutdown encounters an issue
 	HandleShutdown(serverDone chan error, osSignals chan os.Signal) error
 
-	// ShutdownClients initiates client shutdown
-	// interrupt=true will forcefully interrupt ongoing processing
-	// interrupt=false will wait for clients to finish gracefully
-	ShutdownClients(interrupt bool)
+	// ShutdownClients initiates client shutdown with interruption
+	ShutdownClients()
 }
 
 // ShutdownHandler implements the ShutdownHandlerInterface interface
 type ShutdownHandler struct {
-	logger          *logrus.Logger
-	listener        ListenerInterface
-	monitor         ReplicaMonitorInterface
-	middleware      ShutdownMiddleware
-	shutdownRequest chan struct{}
-	wg              sync.WaitGroup
+	logger     *logrus.Logger
+	listener   ListenerInterface
+	middleware ShutdownMiddleware
+	wg         sync.WaitGroup
 }
 
 // ShutdownMiddleware defines the middleware methods needed for shutdown
@@ -39,102 +34,75 @@ type ShutdownMiddleware interface {
 // ListenerInterface defines the listener methods needed for shutdown
 type ListenerInterface interface {
 	GetConsumerTag() string
-	InterruptClients(interrupt bool)
+	InterruptClients()
 }
 
 // NewShutdownHandler creates a new shutdown handler
 func NewShutdownHandler(
 	logger *logrus.Logger,
 	listener ListenerInterface,
-	monitor ReplicaMonitorInterface,
 	middleware ShutdownMiddleware,
-	shutdownRequest chan struct{},
 ) ShutdownHandlerInterface {
 	return &ShutdownHandler{
-		logger:          logger,
-		listener:        listener,
-		monitor:         monitor,
-		middleware:      middleware,
-		shutdownRequest: shutdownRequest,
+		logger:     logger,
+		listener:   listener,
+		middleware: middleware,
 	}
 }
 
-// HandleShutdown orchestrates graceful shutdown based on different shutdown sources
+// HandleShutdown orchestrates graceful shutdown based on shutdown sources
 func (h *ShutdownHandler) HandleShutdown(serverDone chan error, osSignals chan os.Signal) error {
-
-	// Goroutine to handle OS signals
-	h.wg.Add(1)
-	go func() {
-		defer h.wg.Done()
-		sig, ok := <-osSignals
-		if !ok {
-			return
-		}
-		slog.Info("Received OS signal. Initiating shutdown...", "signal", sig)
-		h.ShutdownClients(true) // interrupt ongoing processing
-	}()
-
-	// wait for one of two shutdown triggers
+	// Wait for one of two shutdown triggers:
+	// 1. Server error/completion (serverDone)
+	// 2. OS signal (SIGTERM/SIGINT from Kubernetes or user)
 	select {
 	case err := <-serverDone:
-		close(osSignals) // notify OS signal goroutine to exit
-		h.wg.Wait() // wait for OS signal goroutine to finish
+		// Server stopped (error or normal completion)
+		h.logger.Info("Server stopped, initiating shutdown")
+		close(osSignals) // Signal OS goroutine to stop if it's listening
+		h.ShutdownClients()
 		return h.handleServerError(err)
-	case <-h.shutdownRequest:
-		return h.handleInternalShutdown(serverDone, osSignals)
+
+	case sig, ok := <-osSignals:
+		// OS signal received (SIGTERM from Kubernetes operator or SIGINT from user)
+		if !ok {
+			return nil
+		}
+		h.logger.WithField("signal", sig).Info("Received OS signal, initiating shutdown")
+		h.ShutdownClients()
+
+		// Wait for server to finish after interrupting clients
+		err := <-serverDone
+		return h.handleServerError(err)
 	}
 }
 
-// handleServerError handles shutdown when server stops unexpectedly
+// handleServerError handles shutdown when server stops
 func (h *ShutdownHandler) handleServerError(err error) error {
 	if err != nil {
-		slog.Error("Service stopped unexpectedly due to an error", "error", err)
-		h.ShutdownClients(true)
+		h.logger.WithError(err).Error("Service stopped with an error")
 		return err
 	}
-	slog.Info("Service stopped without an error.")
-	return nil
-}
-
-// handleInternalShutdown handles shutdown triggered by internal scale-in request
-func (h *ShutdownHandler) handleInternalShutdown(serverDone chan error, osSignals chan os.Signal) error {
-	slog.Info("Received internal scale-in request. Initiating graceful shutdown...")
-	h.ShutdownClients(false) // block here until clients finish
-	err := <-serverDone      // wait for server to finish
-	close(osSignals)         // this notifies the OS signal goroutine to exit
-	h.wg.Wait()              // wait for OS signal goroutine to finish
-	if err != nil {
-		slog.Error("Service encountered an error during internal shutdown", "error", err)
-		return err
-	}
-	slog.Info("Service exited gracefully after internal scale-in request.")
+	h.logger.Info("Service stopped cleanly")
 	return nil
 }
 
 // ShutdownClients initiates the shutdown of all server components
-func (h *ShutdownHandler) ShutdownClients(interrupt bool) {
-	h.logger.Info("Initiating server shutdown...")
+// Always interrupts ongoing processing via context cancellation
+func (h *ShutdownHandler) ShutdownClients() {
+	h.logger.Info("Shutting down server components...")
 
-	// Stop consuming new messages
+	// Stop consuming new messages from RabbitMQ
 	if err := h.middleware.StopConsuming(h.listener.GetConsumerTag()); err != nil {
-		h.logger.WithField("error", err).Error("Error stopping consumer")
+		h.logger.WithError(err).Error("Error stopping consumer")
 	}
 
-	// Stop the replica monitor
-	h.monitor.Stop()
-
-	if interrupt {
-		// Interrupts ongoing processing
-		h.listener.InterruptClients(true)
-	} else {
-		// Waits for clients to finish gracefully
-		// if desired, a timeout could be added to set a limit
-		// on how long we wait for clients to finish.
-		h.listener.InterruptClients(false)
-	}
+	// Interrupt all active clients by canceling their contexts
+	// This triggers graceful shutdown: workers finish current jobs, then stop
+	h.listener.InterruptClients()
 
 	// Close middleware connection
 	h.middleware.Close()
 
-	h.logger.Info("Server stopped consuming, all clients finished.")
+	h.logger.Info("Server shutdown complete")
 }

@@ -10,6 +10,11 @@ type MockMiddleware struct {
 	mock.Mock
 }
 
+func (m *MockMiddleware) SetupTopology() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 func (m *MockMiddleware) DeclareQueue(queueName string) error {
 	args := m.Called(queueName)
 	return args.Error(0)

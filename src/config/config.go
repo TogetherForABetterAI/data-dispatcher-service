@@ -4,48 +4,37 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/joho/godotenv"
 )
 
 const (
-	DATASET_EXCHANGE       = "dataset_exchange"
-	CONNECTION_QUEUE_NAME  = "data_dispatcher_connections_queue"
-	SCALABILITY_QUEUE_NAME = "scalability_queue"
-	SCALABILITY_EXCHANGE   = "scalability_exchange"
-	REPLICA_NAME           = "dispatcher"
-	RESET_CAPACITY = 0.7
+	CONNECTION_QUEUE_NAME = "dispatcher_connection_queue"
 )
 
 type Interface interface {
 	GetLogLevel() string
-	GetReplicaName() string
-	GetConsumerTag() string
+	GetPodName() string
 	GetMiddlewareConfig() *MiddlewareConfig
-	GetGrpcConfig() *GrpcConfig
+	GetDatabaseConfig() *DatabaseConfig
 	GetWorkerPoolSize() int
-	IsLeader() bool
-	GetMinThreshold() int
-	GetStartupTimeout() time.Duration
 }
 
 type GlobalConfig struct {
 	logLevel         string
-	replicaName      string
-	consumerTag      string
+	podName          string
 	middlewareConfig *MiddlewareConfig
-	grpcConfig       *GrpcConfig
+	databaseConfig   *DatabaseConfig
 	workerPoolSize   int
-	isLeader         bool
-	minThreshold     int
-	startupTimeout   time.Duration
 }
 
-type GrpcConfig struct {
-	datasetServiceAddr string
-	batchSize          int32
+// DatabaseConfig holds PostgreSQL connection configuration
+type DatabaseConfig struct {
+	host     string
+	port     int32
+	user     string
+	password string
+	dbname   string
 }
 
 // MiddlewareConfig holds RabbitMQ connection configuration
@@ -58,10 +47,9 @@ type MiddlewareConfig struct {
 }
 
 func NewConfig() (GlobalConfig, error) {
-	// Load environment variables
-	if err := godotenv.Load(); err != nil {
-		return GlobalConfig{}, fmt.Errorf("failed to load .env file: %w", err)
-	}
+	// Load environment variables from .env file (optional, for local development)
+	// In production (Kubernetes), variables are injected directly via ConfigMap/Secret
+	_ = godotenv.Load() // Ignore error if .env file doesn't exist
 
 	// Get RabbitMQ connection details from environment
 	rabbitHost := os.Getenv("RABBITMQ_HOST")
@@ -94,25 +82,42 @@ func NewConfig() (GlobalConfig, error) {
 		return GlobalConfig{}, fmt.Errorf("LOG_LEVEL environment variable is required")
 	}
 
-	// Get dataset service address from environment
-	datasetAddr := os.Getenv("DATASET_SERVICE_ADDR")
-	if datasetAddr == "" {
-		return GlobalConfig{}, fmt.Errorf("DATASET_SERVICE_ADDR environment variable is required")
+	// Get Pod name from Kubernetes Downward API (for consumer tag)
+	podName := os.Getenv("POD_NAME")
+	if podName == "" {
+		// Fallback for local development
+		podName = "local-dispatcher"
 	}
 
-	consumerTag := os.Getenv("CONSUMER_TAG")
-	if datasetAddr == "" {
-		return GlobalConfig{}, fmt.Errorf("DATASET_SERVICE_ADDR environment variable is required")
+	// Get PostgreSQL connection details from environment
+	dbHost := os.Getenv("POSTGRES_HOST")
+	if dbHost == "" {
+		// Default to localhost for Cloud SQL Proxy
+		dbHost = "127.0.0.1"
 	}
 
-	// Get batch size from environment
-	batchSizeStr := os.Getenv("BATCH_SIZE")
-	if batchSizeStr == "" {
-		return GlobalConfig{}, fmt.Errorf("BATCH_SIZE environment variable is required")
+	dbPortStr := os.Getenv("POSTGRES_PORT")
+	if dbPortStr == "" {
+		dbPortStr = "5432" // Default PostgreSQL port
 	}
-	batchSize, err := strconv.ParseInt(batchSizeStr, 10, 32)
+	dbPort, err := strconv.ParseInt(dbPortStr, 10, 32)
 	if err != nil {
-		return GlobalConfig{}, fmt.Errorf("BATCH_SIZE must be a valid integer: %w", err)
+		return GlobalConfig{}, fmt.Errorf("POSTGRES_PORT must be a valid integer: %w", err)
+	}
+
+	dbUser := os.Getenv("POSTGRES_USER")
+	if dbUser == "" {
+		return GlobalConfig{}, fmt.Errorf("POSTGRES_USER environment variable is required")
+	}
+
+	dbPass := os.Getenv("POSTGRES_PASS")
+	if dbPass == "" {
+		return GlobalConfig{}, fmt.Errorf("POSTGRES_PASS environment variable is required")
+	}
+
+	dbName := os.Getenv("POSTGRES_DB")
+	if dbName == "" {
+		return GlobalConfig{}, fmt.Errorf("POSTGRES_DB environment variable is required")
 	}
 
 	// Get max retries from environment (optional with default)
@@ -135,41 +140,10 @@ func NewConfig() (GlobalConfig, error) {
 		workerPoolSize = parsed
 	}
 
-	// Get leader status from environment (optional with default)
-	isLeader := false
-	if leaderStr := os.Getenv("IS_LEADER"); leaderStr != "" {
-		isLeader = strings.ToLower(leaderStr) == "true"
-	}
-
-	// Get min client threshold from environment (optional with default)
-	minThreshold := 4
-	if thresholdStr := os.Getenv("MIN_CLIENT_THRESHOLD"); thresholdStr != "" {
-		parsed, err := strconv.Atoi(thresholdStr)
-		if err != nil {
-			return GlobalConfig{}, fmt.Errorf("MIN_CLIENT_THRESHOLD must be a valid integer: %w", err)
-		}
-		minThreshold = parsed
-	}
-
-	// Get startup timeout from environment (optional with default)
-	startupTimeoutSeconds := 300 // 5 minutes default
-	if timeoutStr := os.Getenv("STARTUP_TIMEOUT_SECONDS"); timeoutStr != "" {
-		parsed, err := strconv.Atoi(timeoutStr)
-		if err != nil {
-			return GlobalConfig{}, fmt.Errorf("STARTUP_TIMEOUT_SECONDS must be a valid integer: %w", err)
-		}
-		startupTimeoutSeconds = parsed
-	}
-	startupTimeout := time.Duration(startupTimeoutSeconds) * time.Second
-
 	return GlobalConfig{
 		logLevel:       logLevel,
-		replicaName:    REPLICA_NAME,
-		consumerTag:    consumerTag,
+		podName:        podName,
 		workerPoolSize: workerPoolSize,
-		isLeader:       isLeader,
-		minThreshold:   minThreshold,
-		startupTimeout: startupTimeout,
 		middlewareConfig: &MiddlewareConfig{
 			host:       rabbitHost,
 			port:       int32(rabbitPort),
@@ -177,9 +151,12 @@ func NewConfig() (GlobalConfig, error) {
 			password:   rabbitPass,
 			maxRetries: maxRetries,
 		},
-		grpcConfig: &GrpcConfig{
-			datasetServiceAddr: datasetAddr,
-			batchSize:          int32(batchSize),
+		databaseConfig: &DatabaseConfig{
+			host:     dbHost,
+			port:     int32(dbPort),
+			user:     dbUser,
+			password: dbPass,
+			dbname:   dbName,
 		},
 	}, nil
 }
@@ -189,36 +166,20 @@ func (c GlobalConfig) GetLogLevel() string {
 	return c.logLevel
 }
 
-func (c GlobalConfig) GetReplicaName() string {
-	return c.replicaName
-}
-
-func (c GlobalConfig) GetConsumerTag() string {
-	return c.consumerTag
+func (c GlobalConfig) GetPodName() string {
+	return c.podName
 }
 
 func (c GlobalConfig) GetMiddlewareConfig() *MiddlewareConfig {
 	return c.middlewareConfig
 }
 
-func (c GlobalConfig) GetGrpcConfig() *GrpcConfig {
-	return c.grpcConfig
+func (c GlobalConfig) GetDatabaseConfig() *DatabaseConfig {
+	return c.databaseConfig
 }
 
 func (c GlobalConfig) GetWorkerPoolSize() int {
 	return c.workerPoolSize
-}
-
-func (c GlobalConfig) IsLeader() bool {
-	return c.isLeader
-}
-
-func (c GlobalConfig) GetMinThreshold() int {
-	return c.minThreshold
-}
-
-func (c GlobalConfig) GetStartupTimeout() time.Duration {
-	return c.startupTimeout
 }
 
 // MiddlewareConfig getters
@@ -242,11 +203,23 @@ func (m MiddlewareConfig) GetMaxRetries() int {
 	return m.maxRetries
 }
 
-// GrpcConfig getters
-func (g GrpcConfig) GetDatasetServiceAddr() string {
-	return g.datasetServiceAddr
+// DatabaseConfig getters
+func (d DatabaseConfig) GetHost() string {
+	return d.host
 }
 
-func (g GrpcConfig) GetBatchSize() int32 {
-	return g.batchSize
+func (d DatabaseConfig) GetPort() int32 {
+	return d.port
+}
+
+func (d DatabaseConfig) GetUser() string {
+	return d.user
+}
+
+func (d DatabaseConfig) GetPassword() string {
+	return d.password
+}
+
+func (d DatabaseConfig) GetDBName() string {
+	return d.dbname
 }

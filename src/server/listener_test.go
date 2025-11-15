@@ -24,7 +24,6 @@ import (
 // The mockClientManager field is optional and only populated by setupBasicListener.
 type listenerTestSetup struct {
 	mockMiddleware *mocks.MockMiddleware
-	mockMonitor    *mocks.MockReplicaMonitor
 	cfg            *mocks.MockConfig
 	listener       *Listener
 }
@@ -35,13 +34,11 @@ func setupListenerWithFactory(t *testing.T, cfg *mocks.MockConfig, factory Clien
 	t.Helper()
 
 	mockMiddleware := new(mocks.MockMiddleware)
-	mockMonitor := new(mocks.MockReplicaMonitor)
 
-	listener := NewListener(mockMiddleware, cfg, mockMonitor, factory)
+	listener := NewListener(mockMiddleware, cfg, factory)
 
 	return &listenerTestSetup{
 		mockMiddleware: mockMiddleware,
-		mockMonitor:    mockMonitor,
 		cfg:            cfg,
 		listener:       listener,
 	}
@@ -102,14 +99,13 @@ func TestNewListener(t *testing.T) {
 	t.Run("Creates listener with correct fields", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-tag"}
 		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
 		// Act
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 
 		// Assert
 		assert.NotNil(t, listener)
@@ -129,13 +125,12 @@ func TestListenerGetConsumerTag(t *testing.T) {
 	t.Run("Returns correct consumer tag", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-consumer-tag"}
 		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 		expectedTag := "test-consumer-tag"
 		listener.consumerTag = expectedTag
 
@@ -153,15 +148,15 @@ func TestStart(t *testing.T) {
 	t.Run("QoS fails", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-tag"}
 		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 
 		expectedErr := errors.New("QoS error")
+		mockMiddleware.On("SetupTopology").Return(nil)
 		mockMiddleware.On("SetQoS", 5).Return(expectedErr)
 
 		// Act
@@ -176,14 +171,14 @@ func TestStart(t *testing.T) {
 	t.Run("BasicConsume fails", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-tag"}
 		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 
+		mockMiddleware.On("SetupTopology").Return(nil)
 		mockMiddleware.On("SetQoS", 5).Return(nil)
 		expectedErr := errors.New("consume error")
 		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Return(nil, expectedErr)
@@ -200,17 +195,17 @@ func TestStart(t *testing.T) {
 	t.Run("Success and graceful shutdown", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 2, ConsumerTag: "test-tag"}
 		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 
 		msgChan := make(chan amqp.Delivery, 1)
 		listenerReady := make(chan struct{})
 
+		mockMiddleware.On("SetupTopology").Return(nil)
 		mockMiddleware.On("SetQoS", 2).Return(nil)
 		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Run(func(args mock.Arguments) {
 			close(listenerReady) // Signal that listener is ready to consume
@@ -231,7 +226,7 @@ func TestStart(t *testing.T) {
 		}
 
 		// Trigger shutdown
-		listener.InterruptClients(false)
+		listener.InterruptClients()
 
 		// Wait for Start to return with timeout
 		select {
@@ -252,7 +247,6 @@ func TestWorker(t *testing.T) {
 	t.Run("Worker processes message and notifies monitor", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
 
 		mockClientManager := new(mocks.MockClientManager)
@@ -260,19 +254,17 @@ func TestWorker(t *testing.T) {
 			return mockClientManager
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 
 		// Set up expectations - message channel that we control
 		msgChan := make(chan amqp.Delivery, 1)
 		listenerReady := make(chan struct{})
 
+		mockMiddleware.On("SetupTopology").Return(nil)
 		mockMiddleware.On("SetQoS", 1).Return(nil)
 		mockMiddleware.On("BasicConsume", config.CONNECTION_QUEUE_NAME, "test-tag").Run(func(args mock.Arguments) {
 			close(listenerReady) // Signal that listener is ready to consume
 		}).Return((<-chan amqp.Delivery)(msgChan), nil)
-
-		mockMonitor.On("NotifyWorkerStart").Return().Once()
-		mockMonitor.On("NotifyWorkerFinish").Return().Once()
 
 		// Channel to signal when message processing completes
 		messageProcessed := make(chan struct{})
@@ -323,7 +315,6 @@ func TestWorker(t *testing.T) {
 		}
 
 		// Assert
-		mockMonitor.AssertExpectations(t)
 		mockClientManager.AssertExpectations(t)
 		mockDelivery.AssertExpectations(t)
 	})
@@ -335,7 +326,6 @@ func TestSafeProcessMessage(t *testing.T) {
 	t.Run("Recovers from panic and nacks message", func(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
-		mockMonitor := new(mocks.MockReplicaMonitor)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
 
 		mockClientManager := new(mocks.MockClientManager)
@@ -343,7 +333,7 @@ func TestSafeProcessMessage(t *testing.T) {
 			return mockClientManager
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockFactory)
 
 		// Create a valid message
 		validMsg := `{"client_id":"test-client-456","inputs_format":"csv","outputs_format":"json","model_type":"classification"}`
@@ -450,7 +440,6 @@ func TestProcessMessage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			mockMiddleware := new(mocks.MockMiddleware)
-			mockMonitor := new(mocks.MockReplicaMonitor)
 			cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
 
 			mockClientManager := new(mocks.MockClientManager)
@@ -460,7 +449,7 @@ func TestProcessMessage(t *testing.T) {
 				return mockClientManager
 			}
 
-			listener := NewListener(mockMiddleware, cfg, mockMonitor, mockFactory)
+			listener := NewListener(mockMiddleware, cfg, mockFactory)
 
 			mockDelivery := &mocks.MockDelivery{Body: []byte(tt.messageBody)}
 
@@ -500,38 +489,7 @@ func TestProcessMessage(t *testing.T) {
 // TestInterruptClients tests the client interruption logic
 func TestInterruptClients(t *testing.T) {
 	t.Parallel()
-	t.Run("interrupt=false does not call Stop on clients", func(t *testing.T) {
-		// Arrange
-		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
-		mockClientManager := new(mocks.MockClientManager)
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
-			return mockClientManager
-		}
-
-		setup := setupListenerWithFactory(t, cfg, mockFactory)
-
-		// Add a client to activeClients
-		setup.listener.clientsMutex.Lock()
-		setup.listener.activeClients["test-client"] = mockClientManager
-		setup.listener.clientsMutex.Unlock()
-
-		// Simulate a worker running
-		workerDone := simulateWorker(t, setup.listener)
-
-		// Act
-		setup.listener.InterruptClients(false)
-
-		// Assert
-		assertContextCancelled(t, setup.listener.ctx)
-
-		// Verify worker was waited for
-		waitForChannel(t, workerDone, 200*time.Millisecond, "Expected InterruptClients to wait for worker")
-
-		// Stop should NOT have been called
-		mockClientManager.AssertNotCalled(t, "Stop")
-	})
-
-	t.Run("interrupt=true calls Stop on all active clients", func(t *testing.T) {
+	t.Run("calls Stop on all active clients", func(t *testing.T) {
 		// Arrange
 		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
 		mockClientManager1 := new(mocks.MockClientManager)
@@ -559,7 +517,7 @@ func TestInterruptClients(t *testing.T) {
 		// Act
 		interruptDone := make(chan struct{})
 		go func() {
-			setup.listener.InterruptClients(true)
+			setup.listener.InterruptClients()
 			close(interruptDone)
 		}()
 
