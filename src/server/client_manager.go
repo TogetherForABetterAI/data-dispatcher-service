@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/data-dispatcher-service/src/config"
-	"github.com/data-dispatcher-service/src/db"
 	"github.com/data-dispatcher-service/src/middleware"
 	"github.com/data-dispatcher-service/src/models"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -17,7 +16,7 @@ type ClientManager struct {
 	logger       *logrus.Logger
 	conn         *amqp.Connection
 	middleware   middleware.MiddlewareInterface
-	dbClient     *db.Client
+	dbClient     DBClient
 	batchHandler *BatchHandler
 }
 
@@ -27,15 +26,9 @@ type ClientManagerInterface interface {
 }
 
 // NewClientManager creates a new client manager
-func NewClientManager(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) *ClientManager {
+func NewClientManager(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) *ClientManager {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
-
-	// Create database client
-	dbClient, err := db.NewClient(cfg)
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to create database client")
-	}
 
 	return &ClientManager{
 		logger:     logger,
@@ -77,8 +70,5 @@ func (c *ClientManager) Stop() {
 	c.logger.Info("Stopping ClientManager for client ", c.clientID)
 	if c.batchHandler != nil {
 		c.batchHandler.Stop()
-	}
-	if c.dbClient != nil {
-		c.dbClient.Close()
 	}
 }

@@ -22,12 +22,18 @@ type ShutdownHandler struct {
 	logger     *logrus.Logger
 	listener   ListenerInterface
 	middleware ShutdownMiddleware
+	dbCloser   DBCloser
 	wg         sync.WaitGroup
 }
 
 // ShutdownMiddleware defines the middleware methods needed for shutdown
 type ShutdownMiddleware interface {
 	StopConsuming(consumerTag string) error
+	Close()
+}
+
+// DBCloser defines the interface for closing database connections
+type DBCloser interface {
 	Close()
 }
 
@@ -42,11 +48,13 @@ func NewShutdownHandler(
 	logger *logrus.Logger,
 	listener ListenerInterface,
 	middleware ShutdownMiddleware,
+	dbCloser DBCloser,
 ) ShutdownHandlerInterface {
 	return &ShutdownHandler{
 		logger:     logger,
 		listener:   listener,
 		middleware: middleware,
+		dbCloser:   dbCloser,
 	}
 }
 
@@ -103,6 +111,9 @@ func (h *ShutdownHandler) ShutdownClients() {
 
 	// Close middleware connection
 	h.middleware.Close()
+
+	// Close database connection pool
+	h.dbCloser.Close()
 
 	h.logger.Info("Server shutdown complete")
 }

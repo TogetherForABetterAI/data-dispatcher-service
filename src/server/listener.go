@@ -9,15 +9,24 @@ import (
 	// "time" // Ya no es necesario
 
 	"github.com/data-dispatcher-service/src/config"
-
+	"github.com/data-dispatcher-service/src/db"
 	"github.com/data-dispatcher-service/src/middleware"
 	"github.com/data-dispatcher-service/src/models"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sirupsen/logrus"
 )
 
+// DBClient defines the interface for database operations
+type DBClient interface {
+	GetPendingBatches(ctx context.Context, sessionID string) ([]db.Batch, error)
+	GetPendingBatchesLimit(ctx context.Context, sessionID string, limit int) ([]db.Batch, error)
+	MarkBatchAsEnqueued(ctx context.Context, batchID string) error
+	MarkBatchesAsEnqueued(ctx context.Context, batchIDs []string) error
+	Close()
+}
+
 // this type definition can be used if you want to inject different client manager implementations
-type ClientManagerFactory func(config.Interface, middleware.MiddlewareInterface, string) ClientManagerInterface
+type ClientManagerFactory func(config.Interface, middleware.MiddlewareInterface, DBClient, string) ClientManagerInterface
 
 // Listener handles listening for new client notifications and processing them
 type Listener struct {
@@ -28,6 +37,7 @@ type Listener struct {
 	wg          sync.WaitGroup
 	consumerTag string
 	config      config.Interface
+	dbClient    DBClient // Shared database client
 
 	clientsMutex  sync.RWMutex
 	activeClients map[string]ClientManagerInterface
@@ -43,6 +53,7 @@ type Listener struct {
 func NewListener(
 	middleware middleware.MiddlewareInterface,
 	cfg config.Interface,
+	dbClient DBClient,
 	factory ClientManagerFactory,
 ) *Listener {
 
@@ -62,6 +73,7 @@ func NewListener(
 		queueName:            config.CONNECTION_QUEUE_NAME,
 		jobs:                 jobs,
 		config:               cfg,
+		dbClient:             dbClient,
 		ctx:                  ctx,
 		cancel:               cancel,
 		activeClients:        make(map[string]ClientManagerInterface),
@@ -185,7 +197,7 @@ func (l *Listener) processMessage(msg amqp.Delivery) {
 
 	clientID := notification.ClientId
 
-	clientManager := l.clientManagerFactory(l.config, l.middleware, clientID)
+	clientManager := l.clientManagerFactory(l.config, l.middleware, l.dbClient, clientID)
 	l.clientsMutex.Lock()
 	l.activeClients[clientID] = clientManager
 	l.clientsMutex.Unlock()

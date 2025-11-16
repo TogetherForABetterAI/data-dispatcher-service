@@ -25,6 +25,7 @@ import (
 type listenerTestSetup struct {
 	mockMiddleware *mocks.MockMiddleware
 	cfg            *mocks.MockConfig
+	mockDBClient   *mocks.MockDBClient
 	listener       *Listener
 }
 
@@ -34,12 +35,14 @@ func setupListenerWithFactory(t *testing.T, cfg *mocks.MockConfig, factory Clien
 	t.Helper()
 
 	mockMiddleware := new(mocks.MockMiddleware)
+	mockDBClient := new(mocks.MockDBClient)
 
-	listener := NewListener(mockMiddleware, cfg, factory)
+	listener := NewListener(mockMiddleware, cfg, mockDBClient, factory)
 
 	return &listenerTestSetup{
 		mockMiddleware: mockMiddleware,
 		cfg:            cfg,
+		mockDBClient:   mockDBClient,
 		listener:       listener,
 	}
 }
@@ -100,12 +103,13 @@ func TestNewListener(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-tag"}
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockDBClient := new(mocks.MockDBClient)
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
 		// Act
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 		// Assert
 		assert.NotNil(t, listener)
@@ -126,11 +130,12 @@ func TestListenerGetConsumerTag(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-consumer-tag"}
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockDBClient := new(mocks.MockDBClient)
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 		expectedTag := "test-consumer-tag"
 		listener.consumerTag = expectedTag
 
@@ -149,11 +154,12 @@ func TestStart(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-tag"}
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockDBClient := new(mocks.MockDBClient)
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 		expectedErr := errors.New("QoS error")
 		mockMiddleware.On("SetupTopology").Return(nil)
@@ -172,11 +178,12 @@ func TestStart(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 5, ConsumerTag: "test-tag"}
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockDBClient := new(mocks.MockDBClient)
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 		mockMiddleware.On("SetupTopology").Return(nil)
 		mockMiddleware.On("SetQoS", 5).Return(nil)
@@ -196,11 +203,12 @@ func TestStart(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 2, ConsumerTag: "test-tag"}
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockDBClient := new(mocks.MockDBClient)
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 		msgChan := make(chan amqp.Delivery, 1)
 		listenerReady := make(chan struct{})
@@ -248,13 +256,14 @@ func TestWorker(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
+		mockDBClient := new(mocks.MockDBClient)
 
 		mockClientManager := new(mocks.MockClientManager)
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return mockClientManager
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 		// Set up expectations - message channel that we control
 		msgChan := make(chan amqp.Delivery, 1)
@@ -327,13 +336,14 @@ func TestSafeProcessMessage(t *testing.T) {
 		// Arrange
 		mockMiddleware := new(mocks.MockMiddleware)
 		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
+		mockDBClient := new(mocks.MockDBClient)
 
 		mockClientManager := new(mocks.MockClientManager)
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return mockClientManager
 		}
 
-		listener := NewListener(mockMiddleware, cfg, mockFactory)
+		listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 		// Create a valid message
 		validMsg := `{"client_id":"test-client-456","inputs_format":"csv","outputs_format":"json","model_type":"classification"}`
@@ -441,15 +451,16 @@ func TestProcessMessage(t *testing.T) {
 			// Arrange
 			mockMiddleware := new(mocks.MockMiddleware)
 			cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
+			mockDBClient := new(mocks.MockDBClient)
 
 			mockClientManager := new(mocks.MockClientManager)
 			factoryCalled := false
-			mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+			mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 				factoryCalled = true
 				return mockClientManager
 			}
 
-			listener := NewListener(mockMiddleware, cfg, mockFactory)
+			listener := NewListener(mockMiddleware, cfg, mockDBClient, mockFactory)
 
 			mockDelivery := &mocks.MockDelivery{Body: []byte(tt.messageBody)}
 
@@ -494,7 +505,7 @@ func TestInterruptClients(t *testing.T) {
 		cfg := &mocks.MockConfig{WorkerPoolSize: 1, ConsumerTag: "test-tag"}
 		mockClientManager1 := new(mocks.MockClientManager)
 		mockClientManager2 := new(mocks.MockClientManager)
-		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
+		mockFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
 			return new(mocks.MockClientManager)
 		}
 

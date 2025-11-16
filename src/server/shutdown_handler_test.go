@@ -20,6 +20,7 @@ import (
 type shutdownTestHarness struct {
 	mockListener   *mocks.MockListener
 	mockMiddleware *mocks.MockMiddleware
+	mockDBClient   *mocks.MockDBClient
 	logger         *logrus.Logger
 	handler        ShutdownHandlerInterface
 	serverDone     chan error
@@ -32,6 +33,7 @@ func newShutdownTestHarness(t *testing.T) *shutdownTestHarness {
 
 	mockListener := new(mocks.MockListener)
 	mockMiddleware := new(mocks.MockMiddleware)
+	mockDBClient := new(mocks.MockDBClient)
 
 	logger := logrus.New()
 	logger.SetOutput(logrus.StandardLogger().Out)
@@ -40,11 +42,13 @@ func newShutdownTestHarness(t *testing.T) *shutdownTestHarness {
 		logger,
 		mockListener,
 		mockMiddleware,
+		mockDBClient,
 	)
 
 	return &shutdownTestHarness{
 		mockListener:   mockListener,
 		mockMiddleware: mockMiddleware,
+		mockDBClient:   mockDBClient,
 		logger:         logger,
 		handler:        handler,
 		serverDone:     make(chan error, 1),
@@ -65,6 +69,7 @@ func setupShutdownClientsMocks(h *shutdownTestHarness, signalChan chan struct{})
 	}).Return()
 
 	h.mockMiddleware.On("Close").Return()
+	h.mockDBClient.On("Close").Return()
 }
 
 // ============================================================================
@@ -83,6 +88,7 @@ func TestShutdownClients(t *testing.T) {
 		harness.mockMiddleware.On("StopConsuming", "test-consumer-tag").Return(nil)
 		harness.mockListener.On("InterruptClients").Return()
 		harness.mockMiddleware.On("Close").Return()
+		harness.mockDBClient.On("Close").Return()
 
 		// Act
 		harness.handler.ShutdownClients()
@@ -90,12 +96,14 @@ func TestShutdownClients(t *testing.T) {
 		// Assert
 		harness.mockListener.AssertExpectations(t)
 		harness.mockMiddleware.AssertExpectations(t)
+		harness.mockDBClient.AssertExpectations(t)
 
 		// Verify call order
 		harness.mockListener.AssertCalled(t, "GetConsumerTag")
 		harness.mockMiddleware.AssertCalled(t, "StopConsuming", "test-consumer-tag")
 		harness.mockListener.AssertCalled(t, "InterruptClients")
 		harness.mockMiddleware.AssertCalled(t, "Close")
+		harness.mockDBClient.AssertCalled(t, "Close")
 	})
 
 	t.Run("StopConsuming returns error", func(t *testing.T) {
@@ -106,6 +114,7 @@ func TestShutdownClients(t *testing.T) {
 		harness.mockMiddleware.On("StopConsuming", "test-consumer-tag").Return(fmt.Errorf("consume error"))
 		harness.mockListener.On("InterruptClients").Return()
 		harness.mockMiddleware.On("Close").Return()
+		harness.mockDBClient.On("Close").Return()
 
 		// Act
 		harness.handler.ShutdownClients()

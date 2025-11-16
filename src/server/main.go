@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 
 	"github.com/data-dispatcher-service/src/config"
+	"github.com/data-dispatcher-service/src/db"
 	"github.com/data-dispatcher-service/src/middleware"
 	"github.com/sirupsen/logrus"
 )
@@ -18,7 +18,7 @@ type Server struct {
 	logger          *logrus.Logger
 	listener        *Listener
 	config          config.Interface
-	shutdownOnce    sync.Once                // Ensures Stop() is called only once
+	dbClient        *db.Client               // Shared database client
 	shutdownHandler ShutdownHandlerInterface // Handles graceful shutdown logic
 }
 
@@ -32,17 +32,24 @@ func NewServer(cfg config.Interface) (*Server, error) {
 		return nil, fmt.Errorf("failed to create middleware: %w", err)
 	}
 
+	// Create shared database client
+	dbClient, err := db.NewClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database client: %w", err)
+	}
+
 	server := &Server{
 		middleware: mw,
 		logger:     logger,
 		config:     cfg,
+		dbClient:   dbClient,
 	}
 
-	realFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, clientID string) ClientManagerInterface {
-		return NewClientManager(cfg, mw, clientID)
+	realFactory := func(cfg config.Interface, mw middleware.MiddlewareInterface, dbClient DBClient, clientID string) ClientManagerInterface {
+		return NewClientManager(cfg, mw, dbClient, clientID)
 	}
 
-	listener := NewListener(mw, cfg, realFactory)
+	listener := NewListener(mw, cfg, dbClient, realFactory)
 
 	server.listener = listener
 
@@ -51,6 +58,7 @@ func NewServer(cfg config.Interface) (*Server, error) {
 		logger,
 		listener,
 		mw,
+		dbClient,
 	)
 
 	logger.WithFields(logrus.Fields{

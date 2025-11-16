@@ -15,14 +15,14 @@ import (
 // BatchHandler manages fetching batches from DB and publishing to client queues
 type BatchHandler struct {
 	publisher *middleware.Publisher
-	dbClient  *db.Client
+	dbClient  DBClient
 	logger    *logrus.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
 }
 
 // NewBatchHandler creates a new batch handler with initialized dependencies
-func NewBatchHandler(publisher *middleware.Publisher, dbClient *db.Client, logger *logrus.Logger) *BatchHandler {
+func NewBatchHandler(publisher *middleware.Publisher, dbClient DBClient, logger *logrus.Logger) *BatchHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &BatchHandler{
