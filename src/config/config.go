@@ -10,6 +10,9 @@ import (
 
 const (
 	CONNECTION_QUEUE_NAME = "dispatcher_connection_queue"
+	DATASET_EXCHANGE  = "dataset_exchange"
+	BATCHES_TO_FETCH = 10
+	DISPATCHER_EXCHANGE = "dispatcher_exchange"
 )
 
 type Interface interface {
