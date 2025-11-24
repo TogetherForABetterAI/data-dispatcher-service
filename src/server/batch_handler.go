@@ -6,46 +6,59 @@ import (
 
 	"github.com/data-dispatcher-service/src/config"
 	"github.com/data-dispatcher-service/src/db"
-	"github.com/data-dispatcher-service/src/middleware"
 	"github.com/data-dispatcher-service/src/models"
 	"github.com/data-dispatcher-service/src/pb"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
+// PublisherInterface defines the interface for publishing messages
+type PublisherInterface interface {
+	Publish(queueName string, body []byte, routingKey string) error
+}
+
 // BatchHandler manages fetching batches from DB and publishing to client queues
 type BatchHandler struct {
-	publisher                    *middleware.Publisher
+	publisher                    PublisherInterface
 	dbClient                     DBClient
 	logger                       *logrus.Logger
 	ctx                          context.Context
 	cancel                       context.CancelFunc
 	dispatcherToClientQueue      string
 	dispatcherToCalibrationQueue string
+	totalBatches                 int // Total batches generated for this session
 }
 
 // NewBatchHandler creates a new batch handler with initialized dependencies
-func NewBatchHandler(publisher *middleware.Publisher, dbClient DBClient, logger *logrus.Logger, dispatcherToClientQueue, dispatcherToCalibrationQueue string) *BatchHandler {
+func NewBatchHandler(publisher PublisherInterface, dbClient DBClient, logger *logrus.Logger, dispatcherToClientQueue, dispatcherToCalibrationQueue string) *BatchHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &BatchHandler{
-		publisher: publisher,
-		dbClient:  dbClient,
-		logger:    logger,
-		ctx:       ctx,
-		cancel:    cancel,
+		publisher:                    publisher,
+		dbClient:                     dbClient,
+		logger:                       logger,
+		ctx:                          ctx,
+		cancel:                       cancel,
+		dispatcherToClientQueue:      dispatcherToClientQueue,
+		dispatcherToCalibrationQueue: dispatcherToCalibrationQueue,
+		totalBatches:                 0, 
 	}
 }
 
 // Start processes all batches for a client session in chunks
 func (bh *BatchHandler) Start(notification *models.ConnectNotification) error {
+	// Store total batches for this session
+	bh.totalBatches = notification.TotalBatchesGenerated
+
 	bh.logger.WithFields(logrus.Fields{
 		"client_id":        notification.ClientId,
 		"session_id":       notification.SessionId,
+		"total_batches":    bh.totalBatches,
 		"dataset_exchange": config.DATASET_EXCHANGE,
 	}).Info("Starting batch handler for client session")
 
 	totalProcessed := 0
+	batchesToFetch := config.BATCHES_TO_FETCH
 
 	// Loop until no more pending batches
 	for {
@@ -56,50 +69,60 @@ func (bh *BatchHandler) Start(notification *models.ConnectNotification) error {
 			// Continue processing
 		}
 
-		// Get N+1 batches to detect if this is the last chunk
-		// Strategy: Request one extra batch to "look ahead"
-		batches, err := bh.dbClient.GetPendingBatchesLimit(bh.ctx, notification.SessionId, config.BATCHES_TO_FETCH+1)
-		if err != nil {
-			return fmt.Errorf("failed to get pending batches: %w", err)
+		// Calculate how many batches remain
+		batchesRemaining := bh.totalBatches - totalProcessed
+
+		// Determine how many batches to fetch this round
+		if batchesRemaining < config.BATCHES_TO_FETCH {
+			batchesToFetch = batchesRemaining
 		}
 
-		// If no more batches, we're done
-		if len(batches) == 0 {
+		// If no more batches to process, we're done
+		if batchesToFetch == 0 {
 			bh.logger.WithFields(logrus.Fields{
 				"client_id":       notification.ClientId,
 				"session_id":      notification.SessionId,
 				"total_processed": totalProcessed,
+				"total_batches":   bh.totalBatches,
 			}).Info("All batches processed for client session")
 			break
 		}
 
-		// Determine if this is the last chunk
-		// If we received <= batchChunkSize batches, it means there are no more after this
-		isLastChunk := len(batches) <= config.BATCHES_TO_FETCH
-
-		// Prepare the chunk to process
-		var chunkToProcess []db.Batch
-		if isLastChunk {
-			// This is the last chunk, process all received batches
-			chunkToProcess = batches
-		} else {
-			// We received N+1 batches, so process only the first N
-			chunkToProcess = batches[:config.BATCHES_TO_FETCH]
+		// Get the next chunk of batches
+		batches, err := bh.dbClient.GetPendingBatchesLimit(bh.ctx, notification.SessionId, batchesToFetch)
+		if err != nil {
+			return fmt.Errorf("failed to get pending batches: %w", err)
 		}
 
+		// If no batches returned but we expected some, something is wrong
+		if len(batches) == 0 {
+			bh.logger.WithFields(logrus.Fields{
+				"client_id":          notification.ClientId,
+				"session_id":         notification.SessionId,
+				"total_processed":    totalProcessed,
+				"expected_remaining": batchesRemaining,
+			}).Warn("No batches returned but expected more based on total_batches")
+			break
+		}
+
+		// Determine if this is the last chunk
+		isLastChunk := (totalProcessed + len(batches)) >= bh.totalBatches
+
 		bh.logger.WithFields(logrus.Fields{
-			"session_id":    notification.SessionId,
-			"chunk_size":    len(chunkToProcess),
-			"is_last_chunk": isLastChunk,
-			"chunk_number":  (totalProcessed / config.BATCHES_TO_FETCH) + 1,
+			"session_id":        notification.SessionId,
+			"chunk_size":        len(batches),
+			"is_last_chunk":     isLastChunk,
+			"batches_processed": totalProcessed,
+			"batches_remaining": batchesRemaining,
+			"progress_percent":  float64(totalProcessed) / float64(bh.totalBatches) * 100,
 		}).Debug("Retrieved chunk of pending batches")
 
 		// Process this chunk
-		if err := bh.processBatchChunk(chunkToProcess, notification, isLastChunk); err != nil {
+		if err := bh.processBatchChunk(batches, notification, isLastChunk); err != nil {
 			return fmt.Errorf("failed to process batch chunk: %w", err)
 		}
 
-		totalProcessed += len(chunkToProcess)
+		totalProcessed += len(batches)
 
 		// If this was the last chunk, we're done
 		if isLastChunk {
@@ -143,6 +166,7 @@ func (bh *BatchHandler) processBatchChunk(batches []db.Batch, notification *mode
 			"client_id":     notification.ClientId,
 			"session_id":    notification.SessionId,
 			"batch_index":   batch.BatchIndex,
+			"total_batches": bh.totalBatches,
 			"is_last_batch": isLastBatch,
 		}).Debug("Batch published successfully")
 	}
@@ -160,6 +184,7 @@ func (bh *BatchHandler) processBatchChunk(batches []db.Batch, notification *mode
 		"client_id":     notification.ClientId,
 		"session_id":    notification.SessionId,
 		"batch_count":   len(batches),
+		"total_batches": bh.totalBatches,
 		"is_last_chunk": isLastChunk,
 	}).Info("Successfully processed batch chunk")
 
@@ -197,7 +222,7 @@ func (bh *BatchHandler) publishBatch(batch db.Batch, sessionID string, isLastBat
 		"client_queue":   bh.dispatcherToClientQueue,
 		"internal_queue": bh.dispatcherToCalibrationQueue,
 		"is_last_batch":  isLastBatch,
-	}).Debug("Batch published to both destinations")
+	}).Info("Batch published to both destinations")
 
 	return nil
 }
