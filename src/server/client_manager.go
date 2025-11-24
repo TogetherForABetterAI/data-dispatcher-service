@@ -48,8 +48,8 @@ func (c *ClientManager) HandleClient(notification *models.ConnectNotification) e
 		"session_id": notification.SessionId,
 	}).Info("Starting to handle client notification")
 
-	dispatcherToCalibrationQueue := fmt.Sprintf("%s_labeled_queue", notification.ClientId)
-	dispatcherToClientQueue := fmt.Sprintf("%s_dispatcher_queue", notification.ClientId)
+	dispatcherToCalibrationQueue := fmt.Sprintf(config.DISPATCHER_TO_CALIBRATION_QUEUE, notification.ClientId)
+	dispatcherToClientQueue := fmt.Sprintf(config.DISPATCHER_TO_CLIENT_QUEUE, notification.ClientId)
 
 	if err := c.middleware.DeclareQueue(dispatcherToCalibrationQueue); err != nil {
 		return fmt.Errorf("failed to declare queue %s: %w", dispatcherToClientQueue, err)
