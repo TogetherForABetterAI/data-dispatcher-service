@@ -57,7 +57,7 @@ func NewListener(
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
 	// This channel will buffer jobs for the workers
-	// Its size = pool size, matching the prefetch count.
+	// Its size == pool size, matching the prefetch count.
 	jobs := make(chan amqp.Delivery, cfg.GetWorkerPoolSize())
 
 	// Create an internal context for managing the listener's lifecycle
