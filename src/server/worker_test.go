@@ -85,8 +85,8 @@ func TestWorker_processMessage(t *testing.T) {
 			expectFactoryCalled: false,
 		},
 		{
-			name:                "Empty ClientID",
-			messageBody:         `{"client_id":"","session_id":"session-123","inputs_format":"csv"}`,
+			name:                "Empty UserID",
+			messageBody:         `{"user_id":"","session_id":"session-123","inputs_format":"csv"}`,
 			mockHandleClientErr: nil,
 			expectAck:           false,
 			expectNack:          true,
@@ -95,7 +95,7 @@ func TestWorker_processMessage(t *testing.T) {
 		},
 		{
 			name:                "HandleClient success",
-			messageBody:         `{"client_id":"client-123","session_id":"session-123","total_batches_generated":10}`,
+			messageBody:         `{"user_id":"client-123","session_id":"session-123","total_batches_generated":10}`,
 			mockHandleClientErr: nil,
 			expectAck:           true,
 			expectNack:          false,
@@ -104,7 +104,7 @@ func TestWorker_processMessage(t *testing.T) {
 		},
 		{
 			name:                "HandleClient error - requeue",
-			messageBody:         `{"client_id":"client-456","session_id":"session-456","total_batches_generated":5}`,
+			messageBody:         `{"user_id":"client-456","session_id":"session-456","total_batches_generated":5}`,
 			mockHandleClientErr: errors.New("database error"),
 			expectAck:           false,
 			expectNack:          true,
@@ -113,7 +113,7 @@ func TestWorker_processMessage(t *testing.T) {
 		},
 		{
 			name:                "HandleClient context.Canceled - no requeue",
-			messageBody:         `{"client_id":"client-789","session_id":"session-789","total_batches_generated":3}`,
+			messageBody:         `{"user_id":"client-789","session_id":"session-789","total_batches_generated":3}`,
 			mockHandleClientErr: context.Canceled,
 			expectAck:           false,
 			expectNack:          false,
@@ -122,7 +122,7 @@ func TestWorker_processMessage(t *testing.T) {
 		},
 		{
 			name:                "HandleClient context.DeadlineExceeded - no requeue",
-			messageBody:         `{"client_id":"client-999","session_id":"session-999","total_batches_generated":7}`,
+			messageBody:         `{"user_id":"client-999","session_id":"session-999","total_batches_generated":7}`,
 			mockHandleClientErr: context.DeadlineExceeded,
 			expectAck:           false,
 			expectNack:          false,
@@ -185,7 +185,7 @@ func TestWorker_safeProcessMessage(t *testing.T) {
 
 		worker, _, _, _ := createTestWorker(factory)
 
-		validMsg := `{"client_id":"client-panic","session_id":"session-panic","total_batches_generated":5}`
+		validMsg := `{"user_id":"client-panic","session_id":"session-panic","total_batches_generated":5}`
 		mockDelivery := &mocks.MockDelivery{Body: []byte(validMsg)}
 
 		// Mock HandleClient to panic
@@ -214,7 +214,7 @@ func TestWorker_safeProcessMessage(t *testing.T) {
 
 		worker, _, _, _ := createTestWorker(factory)
 
-		validMsg := `{"client_id":"client-normal","session_id":"session-normal","total_batches_generated":3}`
+		validMsg := `{"user_id":"client-normal","session_id":"session-normal","total_batches_generated":3}`
 		mockDelivery := &mocks.MockDelivery{Body: []byte(validMsg)}
 
 		// Mock HandleClient to succeed normally
@@ -285,7 +285,7 @@ func TestWorker_processMessage_ClientManagerUpdated(t *testing.T) {
 		worker, _, _, _ := createTestWorker(factory)
 		assert.Nil(t, worker.clientManager, "Should start with nil clientManager")
 
-		validMsg := `{"client_id":"client-123","session_id":"session-123","total_batches_generated":5}`
+		validMsg := `{"user_id":"client-123","session_id":"session-123","total_batches_generated":5}`
 		mockDelivery := &mocks.MockDelivery{Body: []byte(validMsg)}
 
 		mockClientManager.On("HandleClient", mock.Anything).Return(nil).Once()
@@ -320,7 +320,7 @@ func TestWorker_processMessage_FactoryReceivesPublisher(t *testing.T) {
 		mockPublisher := &middleware.Publisher{}
 		worker.publisher = mockPublisher
 
-		validMsg := `{"client_id":"client-123","session_id":"session-123","total_batches_generated":5}`
+		validMsg := `{"user_id":"client-123","session_id":"session-123","total_batches_generated":5}`
 		mockDelivery := &mocks.MockDelivery{Body: []byte(validMsg)}
 
 		mockClientManager.On("HandleClient", mock.Anything).Return(nil).Once()

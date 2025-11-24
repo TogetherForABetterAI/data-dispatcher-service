@@ -51,7 +51,7 @@ func (bh *BatchHandler) Start(notification *models.ConnectNotification) error {
 	bh.totalBatches = notification.TotalBatchesGenerated
 
 	bh.logger.WithFields(logrus.Fields{
-		"client_id":        notification.ClientId,
+		"user_id":          notification.UserID,
 		"session_id":       notification.SessionId,
 		"total_batches":    bh.totalBatches,
 		"dataset_exchange": config.DATASET_EXCHANGE,
@@ -73,7 +73,7 @@ func (bh *BatchHandler) Start(notification *models.ConnectNotification) error {
 
 		if batchesRemaining <= 0 {
 			bh.logger.WithFields(logrus.Fields{
-				"client_id":     notification.ClientId,
+				"user_id":       notification.UserID,
 				"session_id":    notification.SessionId,
 				"total_batches": bh.totalBatches,
 			}).Info("All batches processed for client session")
@@ -93,7 +93,7 @@ func (bh *BatchHandler) Start(notification *models.ConnectNotification) error {
 		// If no batches returned but we expected some, something is wrong
 		if len(batches) == 0 {
 			bh.logger.WithFields(logrus.Fields{
-				"client_id":          notification.ClientId,
+				"user_id":            notification.UserID,
 				"session_id":         notification.SessionId,
 				"total_processed":    totalProcessed,
 				"expected_remaining": batchesRemaining,
@@ -159,7 +159,7 @@ func (bh *BatchHandler) processBatchChunk(batches []db.Batch, notification *mode
 		batchIndices = append(batchIndices, batch.BatchIndex)
 
 		bh.logger.WithFields(logrus.Fields{
-			"client_id":     notification.ClientId,
+			"user_id":       notification.UserID,
 			"session_id":    notification.SessionId,
 			"batch_index":   batch.BatchIndex,
 			"total_batches": bh.totalBatches,
@@ -177,7 +177,7 @@ func (bh *BatchHandler) processBatchChunk(batches []db.Batch, notification *mode
 	}
 
 	bh.logger.WithFields(logrus.Fields{
-		"client_id":     notification.ClientId,
+		"user_id":       notification.UserID,
 		"session_id":    notification.SessionId,
 		"batch_count":   len(batches),
 		"total_batches": bh.totalBatches,

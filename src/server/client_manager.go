@@ -11,7 +11,7 @@ import (
 
 // ClientManager handles processing client data requests
 type ClientManager struct {
-	clientID     string // Will be set when HandleClient is called
+	userID       string // Will be set when HandleClient is called
 	logger       *logrus.Logger
 	middleware   middleware.MiddlewareInterface
 	dbClient     DBClient
@@ -34,22 +34,22 @@ func NewClientManager(cfg config.Interface, mw middleware.MiddlewareInterface, d
 		middleware: mw,
 		dbClient:   dbClient,
 		publisher:  publisher,
-		clientID:   "", // Will be set in HandleClient
+		userID:     "", // Will be set in HandleClient
 	}
 }
 
 // HandleClient processes a client notification by fetching batches from DB and publishing to client queue
 func (c *ClientManager) HandleClient(notification *models.ConnectNotification) error {
-	// Set clientID from notification
-	c.clientID = notification.ClientId
+	// Set UserID from notification
+	c.userID = notification.UserID
 
 	c.logger.WithFields(logrus.Fields{
-		"client_id":  notification.ClientId,
+		"user_id":    notification.UserID,
 		"session_id": notification.SessionId,
 	}).Info("Starting to handle client notification")
 
-	dispatcherToCalibrationQueue := fmt.Sprintf(config.DISPATCHER_TO_CALIBRATION_QUEUE, notification.ClientId)
-	dispatcherToClientQueue := fmt.Sprintf(config.DISPATCHER_TO_CLIENT_QUEUE, notification.ClientId)
+	dispatcherToCalibrationQueue := fmt.Sprintf(config.DISPATCHER_TO_CALIBRATION_QUEUE, notification.UserID)
+	dispatcherToClientQueue := fmt.Sprintf(config.DISPATCHER_TO_CLIENT_QUEUE, notification.UserID)
 
 	if err := c.middleware.DeclareQueue(dispatcherToCalibrationQueue); err != nil {
 		return fmt.Errorf("failed to declare queue %s: %w", dispatcherToClientQueue, err)
@@ -63,7 +63,7 @@ func (c *ClientManager) HandleClient(notification *models.ConnectNotification) e
 }
 
 func (c *ClientManager) Stop() {
-	c.logger.Info("Stopping ClientManager for client ", c.clientID)
+	c.logger.Info("Stopping ClientManager for client ", c.userID)
 	if c.batchHandler != nil {
 		c.batchHandler.Stop()
 	}

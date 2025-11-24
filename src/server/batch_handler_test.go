@@ -39,7 +39,7 @@ func TestBatchHandler_Start_Success_SingleChunk(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 3,
 	}
@@ -80,7 +80,7 @@ func TestBatchHandler_Start_Success_MultipleChunks(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 15, // Will be split: 10 + 5 (BATCHES_TO_FETCH = 10)
 	}
@@ -152,7 +152,7 @@ func TestBatchHandler_Start_IsLastBatchDetection(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 2,
 	}
@@ -198,7 +198,7 @@ func TestBatchHandler_Start_DBError(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 5,
 	}
@@ -222,7 +222,7 @@ func TestBatchHandler_Start_PublishError(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 1,
 	}
@@ -253,7 +253,7 @@ func TestBatchHandler_Start_MarkEnqueuedError_DoesNotFailProcessing(t *testing.T
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 1,
 	}
@@ -288,7 +288,7 @@ func TestBatchHandler_Start_NoBatchesReturned(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 5, // Expects 5 but gets 0
 	}
@@ -312,7 +312,7 @@ func TestBatchHandler_Start_ZeroBatches(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 0,
 	}
@@ -333,7 +333,7 @@ func TestBatchHandler_Start_ContextCancellation(t *testing.T) {
 	handler := NewBatchHandler(mockPublisher, mockDBClient, logger, "test_client_queue", "test_calibration_queue")
 
 	notification := &models.ConnectNotification{
-		ClientId:              "client-123",
+		UserID:                "client-123",
 		SessionId:             "session-456",
 		TotalBatchesGenerated: 10,
 	}

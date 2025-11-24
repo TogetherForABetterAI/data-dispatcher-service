@@ -109,18 +109,18 @@ func (w *Worker) processMessage(msg amqp.Delivery) {
 	}
 
 	// Validate notification
-	if notification.ClientId == "" {
+	if notification.UserID == "" {
 		w.logger.WithFields(logrus.Fields{
 			"worker_id":    w.id,
 			"notification": notification,
-		}).Error("Client notification missing client_id")
+		}).Error("Client notification missing user_id")
 		msg.Nack(false, false) // Don't requeue invalid messages
 		return
 	}
 
 	w.logger.WithFields(logrus.Fields{
 		"worker_id":               w.id,
-		"client_id":               notification.ClientId,
+		"user_id":                 notification.UserID,
 		"session_id":              notification.SessionId,
 		"total_batches_generated": notification.TotalBatchesGenerated,
 	}).Info("Processing new client notification")
@@ -136,21 +136,21 @@ func (w *Worker) processMessage(msg amqp.Delivery) {
 		if err == context.Canceled || err == context.DeadlineExceeded {
 			w.logger.WithFields(logrus.Fields{
 				"worker_id": w.id,
-				"client_id": notification.ClientId,
+				"user_id":   notification.UserID,
 				"error":     err.Error(),
 			}).Warn("Client processing was cancelled")
 			return
 		}
 		w.logger.WithFields(logrus.Fields{
 			"worker_id": w.id,
-			"client_id": notification.ClientId,
+			"user_id":   notification.UserID,
 			"error":     err.Error(),
 		}).Error("Failed to process client")
 		msg.Nack(false, true) // Requeue on processing error
 	} else {
 		w.logger.WithFields(logrus.Fields{
 			"worker_id": w.id,
-			"client_id": notification.ClientId,
+			"user_id":   notification.UserID,
 		}).Info("Successfully completed client processing")
 		msg.Ack(false) // Acknowledge successful processing
 	}
