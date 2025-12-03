@@ -83,7 +83,7 @@ func (w *Worker) safeProcessMessage(msg amqp.Delivery) {
 				"worker_id":   w.id,
 				"panic_error": r,
 				"body":        string(msg.Body),
-			}).Error("Recovered from panic while processing message")
+			}).Error("Recovered from panic while processing message. Rejecting message.")
 
 			// Nack the message without requeuing to avoid infinite loops
 			msg.Nack(false, false)
@@ -103,7 +103,7 @@ func (w *Worker) processMessage(msg amqp.Delivery) {
 			"worker_id": w.id,
 			"error":     err.Error(),
 			"body":      string(msg.Body),
-		}).Error("Failed to unmarshal client notification")
+		}).Error("Failed to unmarshal client notification. Rejecting message.")
 		msg.Nack(false, false) // Don't requeue invalid messages
 		return
 	}
@@ -113,7 +113,7 @@ func (w *Worker) processMessage(msg amqp.Delivery) {
 		w.logger.WithFields(logrus.Fields{
 			"worker_id":    w.id,
 			"notification": notification,
-		}).Error("Client notification missing user_id")
+		}).Error("Client notification missing user_id. Rejecting message.")
 		msg.Nack(false, false) // Don't requeue invalid messages
 		return
 	}
@@ -145,8 +145,8 @@ func (w *Worker) processMessage(msg amqp.Delivery) {
 			"worker_id": w.id,
 			"user_id":   notification.UserID,
 			"error":     err.Error(),
-		}).Error("Failed to process client")
-		msg.Nack(false, true) // Requeue on processing error
+		}).Error("Failed to process client. Rejecting message.")
+		msg.Nack(false, false) // avoid infinite loops
 	} else {
 		w.logger.WithFields(logrus.Fields{
 			"worker_id": w.id,
