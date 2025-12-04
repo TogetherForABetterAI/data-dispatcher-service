@@ -3,6 +3,7 @@ package middleware
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/dispatcher-service/src/config"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -18,6 +19,7 @@ type MiddlewareInterface interface {
 	StopConsuming(consumerTag string) error
 	SetQoS(prefetchCount int) error
 	BasicConsume(queueName string, consumerTag string) (<-chan amqp.Delivery, error)
+	Connect() error
 	Close()
 	Conn() *amqp.Connection
 }
@@ -37,43 +39,103 @@ func NewMiddleware(cfg *config.MiddlewareConfig) (*Middleware, error) {
 	logger := logrus.New()
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-	url := fmt.Sprintf("amqp://%s:%s@%s:%d/",
-		cfg.GetUsername(), cfg.GetPassword(), cfg.GetHost(), cfg.GetPort())
-
-	conn, err := amqp.Dial(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
-	}
-
-	ch, err := conn.Channel()
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to open channel: %w", err)
-	}
-
-	if err := ch.Confirm(false); err != nil {
-		return nil, err
-	}
-
-	confirms_chan := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
-
-	if err := ch.Qos(1, 0, false); err != nil {
-		return nil, err
-	}
-
-	logger.WithFields(logrus.Fields{
-		"host": cfg.GetHost(),
-		"port": cfg.GetPort(),
-		"user": cfg.GetUsername(),
-	}).Info("Connected to RabbitMQ")
-
-	return &Middleware{
-		conn:             conn,
-		channel:          ch,
-		confirms_chan:    confirms_chan,
+	m := &Middleware{
 		logger:           logger,
 		MiddlewareConfig: cfg,
-	}, nil
+	}
+
+	if err := m.Connect(); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// Connect establishes a connection to RabbitMQ with exponential backoff retry logic.
+// It will keep retrying until successful, with delays increasing from 5s to a max of 60s.
+func (m *Middleware) Connect() error {
+
+	delay := config.InitialDelay
+	maxDelay := config.MaxDelay
+
+	for {
+		url := fmt.Sprintf("amqp://%s:%s@%s:%d/",
+			m.MiddlewareConfig.GetUsername(),
+			m.MiddlewareConfig.GetPassword(),
+			m.MiddlewareConfig.GetHost(),
+			m.MiddlewareConfig.GetPort(),
+		)
+
+		conn, err := amqp.Dial(url)
+		if err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"host":     m.MiddlewareConfig.GetHost(),
+				"port":     m.MiddlewareConfig.GetPort(),
+				"error":    err.Error(),
+				"retry_in": delay.String(),
+			}).Error("Failed to connect to RabbitMQ. Retrying...")
+
+			time.Sleep(delay)
+			delay = min(delay*2, maxDelay) // exponential backoff
+			continue
+		}
+
+		ch, err := conn.Channel()
+		if err != nil {
+			conn.Close()
+			m.logger.WithFields(logrus.Fields{
+				"error":    err.Error(),
+				"retry_in": delay.String(),
+			}).Error("Failed to open channel. Retrying...")
+
+			time.Sleep(delay)
+			delay = min(delay*2, maxDelay)
+			continue
+		}
+
+		if err := ch.Confirm(false); err != nil {
+			ch.Close()
+			conn.Close()
+			m.logger.WithFields(logrus.Fields{
+				"error":    err.Error(),
+				"retry_in": delay.String(),
+			}).Error("Failed to enable confirms. Retrying...")
+
+			time.Sleep(delay)
+			delay = min(delay*2, maxDelay)
+			continue
+		}
+
+		confirms_chan := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+
+		if err := ch.Qos(1, 0, false); err != nil {
+			ch.Close()
+			conn.Close()
+			m.logger.WithFields(logrus.Fields{
+				"error":    err.Error(),
+				"retry_in": delay.String(),
+			}).Error("Failed to set QoS. Retrying...")
+
+			time.Sleep(delay)
+			delay = min(delay*2, maxDelay)
+			continue
+		}
+
+		// Success - update the middleware state
+		m.mu.Lock()
+		m.conn = conn
+		m.channel = ch
+		m.confirms_chan = confirms_chan
+		m.mu.Unlock()
+
+		m.logger.WithFields(logrus.Fields{
+			"host": m.MiddlewareConfig.GetHost(),
+			"port": m.MiddlewareConfig.GetPort(),
+			"user": m.MiddlewareConfig.GetUsername(),
+		}).Info("Successfully reconnected to RabbitMQ")
+
+		return nil
+	}
 }
 
 // SetupTopology configures the RabbitMQ topology (exchange, queue, and binding)

@@ -52,6 +52,11 @@ func (m *MockMiddleware) Close() {
 	m.Called()
 }
 
+func (m *MockMiddleware) Connect() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
 func (m *MockMiddleware) Conn() *amqp.Connection {
 	args := m.Called()
 	if conn := args.Get(0); conn != nil {

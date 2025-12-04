@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -15,6 +16,8 @@ const (
 	DISPATCHER_EXCHANGE             = "dispatcher_exchange"
 	DISPATCHER_TO_CLIENT_QUEUE      = "%s_dispatcher_queue"
 	DISPATCHER_TO_CALIBRATION_QUEUE = "%s_inputs_cal_queue"
+	InitialDelay = 5 * time.Second
+	MaxDelay     = 60 * time.Second
 )
 
 type Interface interface {

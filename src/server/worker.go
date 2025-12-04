@@ -165,3 +165,26 @@ func (w *Worker) Stop() {
 		w.logger.WithField("worker_id", w.id).Debug("No active client manager to stop")
 	}
 }
+
+// ResetPublisher creates a new publisher for the worker using the current connection.
+// This should be called after the middleware has reconnected to RabbitMQ.
+func (w *Worker) ResetPublisher() error {
+	// Close old publisher if exists
+	if w.publisher != nil {
+		w.publisher.Close()
+	}
+
+	// Create new publisher with the reconnected connection
+	publisher, err := middleware.NewPublisher(w.middleware.Conn())
+	if err != nil {
+		w.logger.WithFields(logrus.Fields{
+			"worker_id": w.id,
+			"error":     err.Error(),
+		}).Error("Failed to create new publisher after reconnection")
+		return err
+	}
+
+	w.publisher = publisher
+	w.logger.WithField("worker_id", w.id).Info("Worker publisher reset successfully")
+	return nil
+}

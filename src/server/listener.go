@@ -87,16 +87,32 @@ func (l *Listener) Start() error {
 		return fmt.Errorf("failed to setup RabbitMQ topology: %w", err)
 	}
 
+	// Setup and start initial connection
+	msgs, err := l.setupAndConsume()
+	if err != nil {
+		return err
+	}
+
+	// Start worker pool (only once)
+	l.startWorkerPool()
+
+	// Main consumption loop with reconnection logic
+	return l.consumeMessages(msgs)
+}
+
+// setupAndConsume establishes the connection, sets up topology, and starts consuming
+func (l *Listener) setupAndConsume() (<-chan amqp.Delivery, error) {
+
 	// Set Prefetch Count (QoS)
 	poolSize := l.config.GetWorkerPoolSize()
 	if err := l.middleware.SetQoS(poolSize); err != nil {
-		return fmt.Errorf("failed to set QoS: %w", err)
+		return nil, fmt.Errorf("failed to set QoS: %w", err)
 	}
 
 	// Get messages channel using POD_NAME as consumer tag
 	msgs, err := l.middleware.BasicConsume(l.queueName, l.consumerTag)
 	if err != nil {
-		return fmt.Errorf("failed to start consuming messages: %w", err)
+		return nil, fmt.Errorf("failed to start consuming messages: %w", err)
 	}
 
 	l.logger.WithFields(logrus.Fields{
@@ -104,7 +120,13 @@ func (l *Listener) Start() error {
 		"queue":        l.queueName,
 	}).Info("Consumer registered with unique tag")
 
-	// Start worker pool
+	return msgs, nil
+}
+
+// startWorkerPool initializes and starts all workers
+func (l *Listener) startWorkerPool() {
+	poolSize := l.config.GetWorkerPoolSize()
+
 	for i := 0; i < poolSize; i++ {
 		worker := NewWorker(i, l.config, l.middleware, l.dbClient, l.clientManagerFactory, l.logger)
 		l.workers = append(l.workers, worker)
@@ -117,14 +139,51 @@ func (l *Listener) Start() error {
 	}
 
 	l.logger.Info("Worker pool started.")
+}
 
+// resetWorkerPublishers resets the publisher for all workers after reconnection
+func (l *Listener) resetWorkerPublishers() error {
+	l.logger.Info("Resetting worker publishers after reconnection...")
+
+	for _, worker := range l.workers {
+		if err := worker.ResetPublisher(); err != nil {
+			return fmt.Errorf("failed to reset publisher for worker: %w", err)
+		}
+	}
+
+	l.logger.Info("All worker publishers reset successfully")
+	return nil
+}
+
+// consumeMessages handles the main message consumption loop with reconnection support
+func (l *Listener) consumeMessages(msgs <-chan amqp.Delivery) error {
 	for {
 		select {
 		case msg, ok := <-msgs:
 			if !ok {
 				l.logger.Warn("Message channel closed (likely due to connection loss)")
-				close(l.jobs)
-				return nil
+				if err := l.middleware.Connect(); err != nil {
+					close(l.jobs)
+					return err
+				}
+				// Re-establish consumption after successful reconnection
+				newMsgs, err := l.setupAndConsume()
+				if err != nil {
+					l.logger.WithError(err).Error("Failed to setup after reconnection")
+					close(l.jobs)
+					return err
+				}
+
+				// Reset worker publishers with new connection
+				if err := l.resetWorkerPublishers(); err != nil {
+					l.logger.WithError(err).Error("Failed to reset worker publishers")
+					close(l.jobs)
+					return err
+				}
+
+				msgs = newMsgs
+				l.logger.Info("Reconnection complete, resuming message consumption")
+				continue
 			}
 			l.jobs <- msg
 
