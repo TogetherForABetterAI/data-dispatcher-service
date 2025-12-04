@@ -16,5 +16,4 @@ FROM gcr.io/distroless/base-debian12
 WORKDIR /app
 COPY --from=builder /app/src/app-binary .
 
-EXPOSE 8080
 CMD ["./app-binary"]
