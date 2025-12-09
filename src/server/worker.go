@@ -139,6 +139,7 @@ func (w *Worker) processMessage(msg amqp.Delivery) {
 				"user_id":   notification.UserID,
 				"error":     err.Error(),
 			}).Warn("Client processing was cancelled")
+			msg.Nack(false, true)
 			return
 		}
 		w.logger.WithFields(logrus.Fields{
